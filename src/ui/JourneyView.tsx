@@ -1,0 +1,563 @@
+/**
+ * Reisebegleitung – Oberfläche (Preact): Reisen mit Live-Stand, Reise anlegen.
+ * Eigenständig nutzbar und als Dashboard-Widget; Stile in styles.css (Klassen „rb-…“, Farben über CSS-Variablen).
+ * Aktualisierung alle 60 s, solange sichtbar. Der Quellenlink zu Transitous ist Pflicht und bleibt sichtbar.
+ */
+import { createContext, type JSX } from 'preact';
+import { useCallback, useContext, useEffect, useMemo, useState } from 'preact/hooks';
+import {
+  arrDelay,
+  arrTime,
+  depDelay,
+  depTime,
+  journeyEnds,
+  progress,
+  rides,
+  TRANSITOUS_SOURCES,
+  transfers as transfersOf,
+  type Journey,
+  type Leg,
+  type Mode,
+  type StopHit,
+  type Stopover,
+  type Ticket,
+  type Transfer,
+} from '../core/index.ts';
+import type { TripView } from '../server/service.ts';
+import { JourneyApiError, type JourneyApi } from './api.ts';
+import { i18n, type I18n, type Key, type Lang } from './i18n.ts';
+
+const Ctx = createContext<{ api: JourneyApi; i: I18n }>(null as never);
+const useI = () => useContext(Ctx).i;
+
+const TICKET_KEYS: Record<Ticket, Key> = {
+  flex: 'ticket_flex',
+  spar: 'ticket_spar',
+  bc100: 'ticket_bc100',
+  dticket: 'ticket_dticket',
+  other: 'ticket_other',
+};
+
+function useTick(ms: number) {
+  const [, set] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => set((n) => n + 1), ms);
+    return () => clearInterval(id);
+  }, [ms]);
+}
+
+const berlinDay = (x: string | number) => new Date(x).toLocaleDateString('de-DE', { timeZone: 'Europe/Berlin' });
+
+/** Zeit relativ (bis 20 min) oder als Uhrzeit, an anderen Tagen mit Datum */
+function when(i: I18n, iso: string) {
+  const min = Math.round((Date.parse(iso) - Date.now()) / 60000);
+  if (min <= 0 && min > -2) return i.t('now');
+  if (min > 0 && min < 20) return i.t('inMin', { n: min });
+  return berlinDay(iso) === berlinDay(Date.now()) ? i.time(iso) : `${i.day(iso)} ${i.time(iso)}`;
+}
+
+function modeClass(m: Mode) {
+  if (m === 'highspeed' || m === 'longdistance' || m === 'night') return 'fv';
+  if (m === 'regional') return 'rail';
+  return m;
+}
+
+function Delay({ d }: { d?: number }) {
+  if (d === undefined) return null;
+  if (d <= 0) return <span class="rb-ontime">{d < 0 ? d : '+0'}</span>;
+  return <span class={d >= 5 ? 'rb-late' : 'rb-slight'}>+{d}</span>;
+}
+
+function Track({ s }: { s: Stopover }) {
+  const i = useI();
+  const tr = s.track ?? s.plannedTrack;
+  if (!tr) return null;
+  const changed = s.track && s.plannedTrack && s.track !== s.plannedTrack;
+  return <span class={`rb-track ${changed ? 'changed' : ''}`}>{i.t('platform', { p: tr })}</span>;
+}
+
+function LineBadge({ l }: { l: Leg }) {
+  return <span class={`rb-line mode-${modeClass(l.mode)}`}>{l.line ?? '?'}</span>;
+}
+
+function StopRow({ s, kind, cls = '' }: { s: Stopover; kind: 'dep' | 'arr'; cls?: string }) {
+  const i = useI();
+  const planned = kind === 'dep' ? s.plannedDeparture : s.plannedArrival;
+  return (
+    <div class={`rb-stop ${cls} ${s.cancelled ? 'cancelled' : ''}`}>
+      <span class="rb-time">
+        {planned ? i.time(planned) : '–'} <Delay d={kind === 'dep' ? depDelay(s) : arrDelay(s)} />
+      </span>
+      <span class="rb-name">{s.stop.name}</span>
+      <Track s={s} />
+    </div>
+  );
+}
+
+function TransferRow({ tr, walk }: { tr: Transfer; walk?: number }) {
+  const i = useI();
+  const text = tr.state === 'cancelled' ? i.t('transferCancelled') : tr.state === 'missed' ? i.t('missed') : tr.state === 'tight' ? i.t('tight') : '';
+  return (
+    <li class={`rb-transfer state-${tr.state}`}>
+      <span class="rb-dot" aria-hidden="true" />
+      <span>
+        {i.t('buffer', { n: tr.bufferMin })}
+        {walk ? ` · ${i.t('walk', { n: walk })}` : ''}
+        {text && <strong> · {text}</strong>}
+      </span>
+    </li>
+  );
+}
+
+function LegItem({ l, current, now }: { l: Leg; current: boolean; now: number }) {
+  const i = useI();
+  const passed = (s: Stopover) => {
+    const x = Date.parse(arrTime(s) ?? depTime(s) ?? '');
+    return Number.isFinite(x) && x <= now;
+  };
+  return (
+    <li class={`rb-leg ${current ? 'current' : ''} ${l.cancelled ? 'cancelled' : ''}`}>
+      <div class="rb-leg-head">
+        <LineBadge l={l} />
+        <span class="rb-dir">{l.headsign ? i.t('towards', { d: l.headsign }) : ''}</span>
+        {l.number && !(l.line ?? '').includes(l.number) && <span class="rb-muted rb-small">{i.t('train', { n: l.number })}</span>}
+        {l.cancelled && <span class="rb-late">{i.t('cancelled')}</span>}
+      </div>
+      <StopRow s={l.from} kind="dep" cls={passed(l.from) ? 'passed' : ''} />
+      {l.stopovers.length > 0 && (
+        <details class="rb-inner" open={current}>
+          <summary class="rb-muted rb-small">{l.stopovers.length === 1 ? i.t('stop1') : i.t('stops', { n: l.stopovers.length })}</summary>
+          {l.stopovers.map((s, k) => (
+            <StopRow s={s} kind="arr" key={k} cls={`inner ${passed(s) ? 'passed' : ''}`} />
+          ))}
+        </details>
+      )}
+      <StopRow s={l.to} kind="arr" cls={passed(l.to) ? 'passed' : ''} />
+    </li>
+  );
+}
+
+function Status({ j, now }: { j: Journey; now: number }) {
+  const i = useI();
+  const p = progress(j, now);
+  const ph = p.phase;
+  let kind: 'on' | 'busy' | 'off' = 'on';
+  let text = '';
+  let sub = '';
+  if (ph.kind === 'before') {
+    const l = j.legs[ph.legIndex];
+    kind = 'off';
+    text = i.t('departsAt', { time: when(i, ph.departsAt) });
+    const tr = l.from.track ?? l.from.plannedTrack;
+    sub = [l.line, l.from.stop.name, tr ? i.t('platform', { p: tr }) : ''].filter(Boolean).join(' · ');
+  } else if (ph.kind === 'riding') {
+    kind = 'busy';
+    text = i.t('riding', { line: j.legs[ph.legIndex].line ?? '' });
+    const at = arrTime(ph.next) ?? depTime(ph.next);
+    sub = i.t('nextStop', { name: ph.next.stop.name, time: at ? i.time(at) : '–' });
+  } else if (ph.kind === 'transfer') {
+    const l = j.legs[ph.legIndex];
+    kind = 'busy';
+    text = i.t('changeAt', { at: ph.at.stop.name });
+    const tr = l.from.track ?? l.from.plannedTrack;
+    sub = [l.kind === 'ride' ? i.t('nextLeg', { line: l.line ?? '', time: when(i, ph.departsAt) }) : '', tr ? i.t('platform', { p: tr }) : '']
+      .filter(Boolean)
+      .join(' · ');
+  } else {
+    text = i.t('arrived', { time: i.time(ph.arrivedAt) });
+  }
+  const pct = Math.round(p.fraction * 100);
+  return (
+    <>
+      <div class={`rb-state rb-state-${kind}`}>
+        <span class="rb-dot" aria-hidden="true" />
+        <span class="rb-state-text">{text}</span>
+        {sub && <span class="rb-muted rb-state-sub">{sub}</span>}
+      </div>
+      <div class="rb-arrival">
+        <span>{i.t('arrival', { time: p.plannedArrival ? i.time(p.plannedArrival) : '–' })}</span>
+        {p.delayMin !== undefined && (p.delayMin > 0 ? <Delay d={p.delayMin} /> : <span class="rb-ontime">{i.t('onTime')}</span>)}
+        {p.delayMin !== undefined && p.delayMin > 0 && p.arrival && <span class="rb-muted"> → {i.time(p.arrival)}</span>}
+      </div>
+      <div class="rb-bar" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}>
+        <span style={{ width: `${pct}%` }} />
+      </div>
+    </>
+  );
+}
+
+function TripCard({ trip, canEdit, onChanged }: { trip: TripView; canEdit: boolean; onChanged: () => void }) {
+  const { api, i } = useContext(Ctx);
+  const j = trip.journey;
+  const now = Date.now();
+  const ends = journeyEnds(j);
+  const ph = progress(j, now).phase;
+  const currentLeg = ph.kind === 'riding' ? ph.legIndex : -1;
+  const trs = transfersOf(j);
+  const start = j.legs[0]?.from.plannedDeparture;
+  const items: JSX.Element[] = [];
+  j.legs.forEach((l, k) => {
+    if (l.kind !== 'ride') return;
+    const tr = trs.find((x) => x.toLeg === k);
+    if (tr) {
+      const walk = j.legs.slice(tr.fromLeg + 1, k).reduce((s, w) => s + (w.walkMin ?? 0), 0);
+      items.push(<TransferRow tr={tr} walk={walk} key={`t${k}`} />);
+    }
+    items.push(<LegItem l={l} current={k === currentLeg} now={now} key={`l${k}`} />);
+  });
+  const last = j.legs.at(-1);
+  const lastWalk = last?.kind === 'walk' ? last.walkMin : undefined;
+
+  async function remove() {
+    if (!confirm(i.t('confirmDelete'))) return;
+    await api.deleteTrip(trip.id);
+    onChanged();
+  }
+
+  return (
+    <section class="rb-trip">
+      <div class="rb-head">
+        <h3>
+          {ends.from} → {ends.to}
+        </h3>
+        <div class="rb-muted rb-small">
+          {[start ? i.day(start) : '', i.t(TICKET_KEYS[trip.ticket]), trip.dticket && trip.ticket !== 'dticket' ? i.t('withDTicket') : ''].filter(Boolean).join(' · ')}
+        </div>
+      </div>
+      <Status j={j} now={now} />
+      <ol class="rb-legs">{items}</ol>
+      {lastWalk ? <p class="rb-muted rb-small">{i.t('walk', { n: lastWalk })}</p> : null}
+      {trip.stale && trip.refreshedAt && <p class="rb-muted rb-small">{i.t('stale', { time: i.time(trip.refreshedAt) })}</p>}
+      {canEdit && (
+        <div class="rb-row">
+          <span class="rb-spacer" />
+          <button type="button" class="rb-btn rb-btn-small rb-danger" onClick={remove}>
+            {i.t('deleteTrip')}
+          </button>
+        </div>
+      )}
+    </section>
+  );
+}
+
+export interface JourneyViewProps {
+  api: JourneyApi;
+  /** darf suchen, anlegen, löschen */
+  canEdit: boolean;
+  lang?: Lang;
+  /** Aktualisierung in ms (Standard 60 s) */
+  refreshMs?: number;
+}
+
+/** Hauptansicht: alle Reisen mit Live-Stand + (für Berechtigte) „Reise anlegen“ */
+export function JourneyView({ api, canEdit, lang = 'de', refreshMs = 60_000 }: JourneyViewProps) {
+  const i = useMemo(() => i18n(lang), [lang]);
+  const ctx = useMemo(() => ({ api, i }), [api, i]);
+  const [data, setData] = useState<{ trips: TripView[]; dticket?: boolean } | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [creating, setCreating] = useState(false);
+  useTick(30_000);
+
+  const load = useCallback(() => {
+    if (document.visibilityState !== 'visible') return;
+    api
+      .trips()
+      .then((r) => {
+        setData(r);
+        setFailed(false);
+      })
+      .catch(() => setFailed(true));
+  }, [api]);
+
+  useEffect(() => {
+    load();
+    const id = setInterval(load, refreshMs);
+    document.addEventListener('visibilitychange', load);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', load);
+    };
+  }, [load, refreshMs]);
+
+  return (
+    <Ctx.Provider value={ctx}>
+      <div class="rb-root">
+        {creating ? (
+          <NewTrip
+            defaultDTicket={data?.dticket ?? false}
+            onDone={(saved) => {
+              setCreating(false);
+              if (saved) load();
+            }}
+          />
+        ) : (
+          <>
+            {!data && <p class="rb-muted">{failed ? i.t('unavailable') : i.t('loading')}</p>}
+            {data && data.trips.length === 0 && <p class="rb-muted">{i.t('none')}</p>}
+            {data?.trips.map((tr) => (
+              <TripCard trip={tr} canEdit={canEdit} onChanged={load} key={tr.id} />
+            ))}
+            {data && failed && <p class="rb-muted rb-small">{i.t('unavailable')}</p>}
+            <div class="rb-row">
+              {canEdit && (
+                <button type="button" class="rb-btn rb-btn-small" onClick={() => setCreating(true)}>
+                  + {i.t('newTrip')}
+                </button>
+              )}
+              <span class="rb-spacer" />
+              <a class="rb-muted rb-small" href={TRANSITOUS_SOURCES} target="_blank" rel="noopener noreferrer">
+                {i.t('sources')}
+              </a>
+            </div>
+            <Disclaimer />
+          </>
+        )}
+      </div>
+    </Ctx.Provider>
+  );
+}
+
+/** Beta-Kennzeichen + Haftungsausschluss (bleibt in jeder Ansicht sichtbar) */
+function Disclaimer() {
+  const i = useI();
+  return (
+    <p class="rb-disclaimer rb-muted rb-small">
+      <span class="rb-beta">{i.t('beta')}</span> {i.t('disclaimer')}
+    </p>
+  );
+}
+
+// ---------- Reise anlegen ----------
+
+function StopField({ label, value, onChange }: { label: string; value: StopHit | null; onChange: (h: StopHit | null) => void }) {
+  const { api, i } = useContext(Ctx);
+  const [text, setText] = useState('');
+  const [hits, setHits] = useState<StopHit[] | null>(null);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    const q = text.trim();
+    if (q.length < 2) {
+      setHits(null);
+      return;
+    }
+    let alive = true;
+    const timer = setTimeout(() => {
+      api
+        .stops(q)
+        .then((r) => {
+          if (!alive) return;
+          setHits(r.hits);
+          setError(Boolean(r.error));
+        })
+        .catch(() => alive && setError(true));
+    }, 300);
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, [text, api]);
+
+  return (
+    <div class="rb-field">
+      <label>
+        {label}
+        <input
+          type="search"
+          value={value && !text ? value.name : text}
+          placeholder={i.t('stopPlaceholder')}
+          autocomplete="off"
+          onInput={(e) => {
+            setText((e.target as HTMLInputElement).value);
+            if (value) onChange(null);
+          }}
+        />
+      </label>
+      {error && <p class="rb-muted rb-small">{i.t('searchFailed')}</p>}
+      {!error && hits?.length === 0 && <p class="rb-muted rb-small">{i.t('noHits')}</p>}
+      {hits && hits.length > 0 && (
+        <ul class="rb-hits">
+          {hits.map((h) => (
+            <li key={h.id}>
+              <button
+                type="button"
+                onClick={() => {
+                  onChange(h);
+                  setText('');
+                  setHits(null);
+                }}
+              >
+                <span>{h.name}</span>
+                {h.place && <span class="rb-muted rb-small"> {h.place}</span>}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function localInput(d: Date) {
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+function duration(j: Journey) {
+  const a = Date.parse(depTime(j.legs[0].from) ?? '');
+  const b = Date.parse(arrTime(j.legs.at(-1)!.to) ?? '');
+  const min = Math.round((b - a) / 60000);
+  return `${Math.floor(min / 60)}:${String(min % 60).padStart(2, '0')} h`;
+}
+
+function ResultItem({ j, onTake, busy }: { j: Journey; onTake: () => void; busy: boolean }) {
+  const i = useI();
+  const r = rides(j);
+  const first = j.legs[0];
+  const last = j.legs.at(-1)!;
+  const n = r.length - 1;
+  return (
+    <li class="rb-result">
+      <div class="rb-result-times">
+        <strong>
+          {first.from.plannedDeparture ? i.time(first.from.plannedDeparture) : '–'} <Delay d={depDelay(first.from)} />
+          {' → '}
+          {last.to.plannedArrival ? i.time(last.to.plannedArrival) : '–'} <Delay d={arrDelay(last.to)} />
+        </strong>
+        <span class="rb-muted rb-small">
+          {duration(j)} · {n === 0 ? i.t('direct') : n === 1 ? i.t('transfer1') : i.t('transfers', { n })}
+        </span>
+      </div>
+      <div class="rb-result-lines">
+        {r.map((l, k) => (
+          <LineBadge l={l} key={k} />
+        ))}
+        {r.some((l) => l.cancelled) && <span class="rb-late">{i.t('cancelled')}</span>}
+      </div>
+      <button type="button" class="rb-btn rb-btn-small rb-primary" disabled={busy} onClick={onTake}>
+        {i.t('take')}
+      </button>
+    </li>
+  );
+}
+
+function NewTrip({ defaultDTicket, onDone }: { defaultDTicket: boolean; onDone: (saved: boolean) => void }) {
+  const { api, i } = useContext(Ctx);
+  const [from, setFrom] = useState<StopHit | null>(null);
+  const [to, setTo] = useState<StopHit | null>(null);
+  const [time, setTime] = useState(localInput(new Date()));
+  const [arriveBy, setArriveBy] = useState(false);
+  const [ticket, setTicket] = useState<Ticket>('flex');
+  const [dticket, setDticket] = useState(defaultDTicket);
+  const [result, setResult] = useState<{ planId: string; journeys: Journey[] } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<Key | null>(null);
+  const hasD = dticket || ticket === 'dticket';
+
+  async function search(at?: string, later = false) {
+    if (!from || !to) {
+      setError('pickStops');
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      setResult(await api.plan({ from: from.id, to: to.id, fromName: from.name, toName: to.name, time: at ?? new Date(time).toISOString(), arriveBy: arriveBy && !later, ticket, dticket: hasD }));
+    } catch {
+      setError('unavailable');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function take(index: number) {
+    if (!result) return;
+    setBusy(true);
+    try {
+      await api.createTrip({ planId: result.planId, index, ticket, dticket: hasD });
+      onDone(true);
+    } catch (e) {
+      setError(e instanceof JourneyApiError && e.code === 'plan-expired' ? 'planExpired' : 'unavailable');
+      setBusy(false);
+    }
+  }
+
+  const laterFrom = () => {
+    const starts = result?.journeys.map((j) => Date.parse(j.legs[0].from.plannedDeparture ?? '')).filter(Number.isFinite) ?? [];
+    return starts.length ? new Date(Math.max(...starts) + 60_000).toISOString() : undefined;
+  };
+
+  return (
+    <form
+      class="rb-new"
+      onSubmit={(e) => {
+        e.preventDefault();
+        search();
+      }}
+    >
+      <h3>{i.t('newTrip')}</h3>
+      <StopField label={i.t('from')} value={from} onChange={setFrom} />
+      <div class="rb-row">
+        <span class="rb-spacer" />
+        <button
+          type="button"
+          class="rb-btn rb-btn-small"
+          aria-label={i.t('swap')}
+          title={i.t('swap')}
+          onClick={() => {
+            setFrom(to);
+            setTo(from);
+          }}
+        >
+          ⇅
+        </button>
+      </div>
+      <StopField label={i.t('to')} value={to} onChange={setTo} />
+      <div class="rb-row rb-wrap">
+        <select value={arriveBy ? '1' : '0'} onChange={(e) => setArriveBy((e.target as HTMLSelectElement).value === '1')}>
+          <option value="0">{i.t('depart')}</option>
+          <option value="1">{i.t('arrive')}</option>
+        </select>
+        <input type="datetime-local" value={time} onInput={(e) => setTime((e.target as HTMLInputElement).value)} />
+      </div>
+      <label>
+        {i.t('ticket')}
+        <select value={ticket} onChange={(e) => setTicket((e.target as HTMLSelectElement).value as Ticket)}>
+          {(Object.keys(TICKET_KEYS) as Ticket[]).map((k) => (
+            <option value={k} key={k}>
+              {i.t(TICKET_KEYS[k])}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label class="rb-check">
+        <input type="checkbox" checked={hasD} disabled={ticket === 'dticket'} onChange={(e) => setDticket((e.target as HTMLInputElement).checked)} />
+        {i.t('hasDTicket')}
+      </label>
+      {ticket === 'dticket' && <p class="rb-muted rb-small">{i.t('dticketOnlyHint')}</p>}
+      <div class="rb-row">
+        <button type="submit" class="rb-btn rb-primary" disabled={busy}>
+          {busy ? i.t('searching') : i.t('search')}
+        </button>
+        <button type="button" class="rb-btn" onClick={() => onDone(false)}>
+          {i.t('cancel')}
+        </button>
+      </div>
+      {error && <p class="rb-error rb-small">{i.t(error)}</p>}
+      {result && result.journeys.length === 0 && <p class="rb-muted">{i.t('noResults')}</p>}
+      {result && result.journeys.length > 0 && (
+        <>
+          <ul class="rb-results">
+            {result.journeys.map((j, k) => (
+              <ResultItem j={j} key={k} busy={busy} onTake={() => take(k)} />
+            ))}
+          </ul>
+          <button type="button" class="rb-btn rb-btn-small" disabled={busy} onClick={() => search(laterFrom(), true)}>
+            {i.t('later')}
+          </button>
+        </>
+      )}
+      <Disclaimer />
+    </form>
+  );
+}

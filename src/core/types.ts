@@ -62,6 +62,8 @@ export interface Leg {
 
 export interface Journey {
   legs: Leg[];
+  /** Anzeigenamen von Start und Ziel wie gesucht (Haltestellennamen in den Daten sind teils ohne Ort, z. B. „Hauptbahnhof“) */
+  title?: { from: string; to: string };
 }
 
 export interface StopHit {

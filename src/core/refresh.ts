@@ -100,5 +100,5 @@ export async function refreshJourney(j: Journey, load: TripLoader): Promise<Refr
       }
     }),
   );
-  return { journey: { legs: alignWalks(legs) }, failed };
+  return { journey: { ...j, legs: alignWalks(legs) }, failed };
 }

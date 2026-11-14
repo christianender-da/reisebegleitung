@@ -1,20 +1,98 @@
 # reisebegleitung
 
-Bausteine für eine persönliche Reisebegleitung im Stil eines Bahn-Navigators – auf Basis offener Fahrplandaten
-von [Transitous](https://transitous.org) (MOTIS 2, inkl. Echtzeit aus DELFI).
+> **Beta** – in Entwicklung, Funktionen und Schnittstellen können sich noch ändern. Angaben ohne Gewähr,
+> siehe [Haftungsausschluss](#haftungsausschluss).
 
-*Building blocks for a personal journey companion on top of the open MOTIS API of Transitous: stop search,
-journey planning, live refresh of booked trips, progress, transfer checks and German rail ticket rules.*
+Persönliche Reisebegleitung für Bahnreisen – im Stil eines Bahn-Navigators, auf Basis offener Fahrplandaten von
+[Transitous](https://transitous.org) (MOTIS 2, in Deutschland mit Echtzeit aus DELFI).
 
-- **Client** für die Transitous-API: Haltestellensuche, Verbindungssuche, Fahrtverlauf (`transitous.ts`)
-- **Datenmodell** unabhängig von der Quelle (`types.ts`), Umwandlung aus MOTIS (`motis.ts`)
-- **Auffrischen** einer gewählten Verbindung mit Echtzeit, inkl. aller Zwischenhalte (`refresh.ts`)
-- **Fortschritt** (vor Abfahrt / unterwegs zwischen Halt X und Y / Umstieg / angekommen) und **Umstiegsampel** (`progress.ts`)
-- **Ticketregeln** (Flexpreis, Sparpreis mit Zugbindung, BahnCard 100, Deutschlandticket) für Suche und Alternativen (`tickets.ts`)
+*A personal journey companion for train trips on top of the open Transitous/MOTIS API – usable as a library,
+as building blocks for your own dashboard, or as a self-hosted Cloudflare app with passkey login.*
 
-Keine Abhängigkeiten, TypeScript-Quellen (ESM). Läuft in Cloudflare Workers, Browsern und Node ≥ 22.18.
+- Verbindungen suchen (Abfahrt/Ankunft) mit Ticketregeln: Flexpreis, Sparpreis, BahnCard 100, Deutschlandticket
+- Live-Fortschritt: vor Abfahrt · unterwegs mit nächstem Halt · Umstieg · angekommen
+- Abschnitte mit allen Zwischenhalten, Gleisen, Gleiswechseln und Verspätungen
+- Umstiegsampel: ok · knapp · nicht erreichbar · fällt aus
 
-## Beispiel
+Geplant: Check-in je Zug, Alternativen bei verpassten Anschlüssen (Web Push), Teilen-Link für Familie und
+Freunde, der 2 h nach Ankunft abläuft.
+
+## Drei Arten der Nutzung
+
+| | Was | Import |
+|---|---|---|
+| **Bibliothek** | Transitous-Client, Datenmodell, Fortschritt, Umstiege, Ticketregeln – ohne Abhängigkeiten | `reisebegleitung` |
+| **Bausteine** | Server-Handler (Request → Response, mit D1-Speicher) und Preact-Oberfläche – zum Einbauen in eigene Apps/Dashboards | `reisebegleitung/server`, `reisebegleitung/ui`, `reisebegleitung/ui/styles.css` |
+| **Eigenständige App** | fertige Web-App auf Cloudflare (Worker + D1), Anmeldung mit Passkey | Ordner `app/` |
+
+## Eigenständige App einrichten (ca. 10 Minuten)
+
+Voraussetzungen: kostenloses [Cloudflare-Konto](https://dash.cloudflare.com/sign-up), Node.js ≥ 22.18.
+
+```bash
+git clone https://github.com/christianender-da/reisebegleitung.git
+cd reisebegleitung
+npm ci
+npx wrangler login
+npx wrangler d1 create reisebegleitung      # gibt eine database_id aus
+```
+
+In `app/wrangler.jsonc`:
+
+1. `database_id` durch die ausgegebene ID ersetzen.
+2. **`CONTACT`** setzen – Pflicht laut Transitous-Nutzungsregeln: deine E-Mail-Adresse oder eine URL
+   (z. B. deinen Fork). Sie wird bei jeder Anfrage im `User-Agent` mitgeschickt.
+3. Optional eine eigene Domain unter `routes` eintragen (sonst `reisebegleitung.<konto>.workers.dev`).
+
+```bash
+npm run app:migrate       # Tabellen anlegen
+npm run app:deploy        # Oberfläche bauen und Worker hochladen
+npm run app:setup-code    # einmaliger Einrichtungscode (30 min gültig), erscheint nur im Terminal
+```
+
+Dann die Seite öffnen, den Einrichtungscode eingeben und einen **Passkey** anlegen (Face ID, Touch ID, Windows Hello …).
+Danach wird **einmal** ein Wiederherstellungscode angezeigt – sicher aufbewahren. Weitere Geräte: angemeldet
+„Passkey hinzufügen“ (iCloud-/Google-Schlüsselbund synchronisiert Passkeys ohnehin). Auf dem iPhone über „Teilen →
+Zum Home-Bildschirm“ als App installieren.
+
+Updates: `git pull && npm ci && npm run app:migrate && npm run app:deploy`.
+
+### Lokal entwickeln
+
+```bash
+npm run app:migrate:local
+npm run app:dev -- --var CONTACT:you@example.org     # http://localhost:8787
+npm run app:setup-code -- --local
+```
+
+Passkeys funktionieren lokal nur über `http://localhost` (nicht über eine IP-Adresse).
+
+## Bausteine in eine eigene App einbauen
+
+Server (z. B. Cloudflare Worker, D1-Schema aus `migrations/0001_journey.sql` übernehmen):
+
+```ts
+import { createJourneyService, d1Store, handleJourneyRequest } from 'reisebegleitung/server';
+
+const service = createJourneyService({ store: d1Store(env.DB), userAgent: 'meine-app/1.0 (+mail@example.org)' });
+// Anmeldung prüft deine App; scope trennt Reiselisten (z. B. je Widget)
+return handleJourneyRequest(service, request, '/trips', { scope: 'default', owner: 'me', canEdit: true });
+```
+
+Oberfläche (Preact):
+
+```tsx
+import { createJourneyApi, JourneyView } from 'reisebegleitung/ui';
+import 'reisebegleitung/ui/styles.css';
+
+<JourneyView api={createJourneyApi('/api/journey')} canEdit lang="de" />;
+```
+
+Die Stile nutzen die CSS-Variablen der Seite (`--bg`, `--card`, `--text`, `--muted`, `--line`, `--accent`, `--on`, `--busy`,
+`--danger`), sonst helle Standardfarben. Die Quellen sind TypeScript (`.ts`-Importe): im Projekt
+`allowImportingTsExtensions` aktivieren; Vite und Wrangler bündeln sie direkt.
+
+Bibliothek allein:
 
 ```ts
 import { createClient, progress, refreshJourney, transfers } from 'reisebegleitung';
@@ -23,30 +101,56 @@ const client = createClient({ userAgent: 'meine-app/1.0 (+https://example.org/ko
 const [from] = await client.searchStops('Darmstadt Hbf');
 const [to] = await client.searchStops('Kassel-Wilhelmshöhe');
 const [journey] = await client.plan({ from: from.id, to: to.id });
-
-// später, z. B. jede Minute:
 const { journey: live } = await refreshJourney(journey, (tripId) => client.trip(tripId));
 console.log(progress(live).phase, transfers(live));
 ```
 
 ## Nutzungsregeln von Transitous
 
-Transitous wird von Freiwilligen betrieben. Wer diese Bibliothek mit `api.transitous.org` nutzt, muss deren
+Transitous wird von Freiwilligen betrieben. Wer `api.transitous.org` nutzt, muss die
 [Nutzungsregeln](https://transitous.org/api/) einhalten, u. a.:
 
-- nur Open-Source- und nicht-kommerzielle Projekte,
-- `User-Agent` mit Anwendungsname, Version und Kontakt (E-Mail oder URL) – `createClient` verlangt ihn,
-- sichtbarer Link auf <https://transitous.org/sources/> (Konstante `TRANSITOUS_SOURCES`) und Beachtung der Lizenzen der Quellen (u. a. OpenStreetMap),
-- wenig Last: mehr als ca. 720 `/plan`-Anfragen pro Tag nur nach Absprache. Für die Live-Verfolgung `trip()` nutzen und zwischenspeichern.
+- nur Open-Source- und nicht-kommerzielle Nutzung,
+- `User-Agent` mit Anwendungsname, Version und Kontakt (die App verlangt `CONTACT`),
+- sichtbarer Link auf <https://transitous.org/sources/> (ist in der Oberfläche eingebaut) und Beachtung der Lizenzen der Quellen,
+- wenig Last: mehr als ca. 720 Verbindungssuchen pro Tag nur nach Absprache. Die Live-Verfolgung nutzt den
+  günstigeren Fahrtverlauf mit 60 s Cache und läuft nur von 3 h vor Abfahrt bis kurz nach Ankunft.
+
+Bitte nicht als öffentlichen Dienst für viele Nutzer betreiben – gedacht ist eine Installation pro Person/Familie.
 
 ## Entwicklung
 
 ```bash
-npm test          # node --test, mit echten (gekürzten) Transitous-Antworten in test/fixtures
+npm test            # node --test, mit echten (gekürzten) Transitous-Antworten in test/fixtures
 npm run typecheck
 ```
 
 Die Ticketregeln sind eine Vereinfachung der Fahrgastrechte (Stand 2026) und keine Rechtsauskunft.
+
+## Haftungsausschluss
+
+Dieses Projekt ist eine **Beta-Version** und ein privates Open-Source-Projekt. Es ist **kein Angebot der Deutschen Bahn**
+oder eines anderen Verkehrsunternehmens und steht mit ihnen in keiner Verbindung.
+
+- **Keine Gewähr für die Daten:** Fahrplan- und Echtzeitdaten stammen aus offenen Quellen (Transitous und deren
+  Datenlieferanten). Sie können unvollständig, verspätet oder falsch sein; Gleiswechsel, Ausfälle, Ersatzverkehr oder
+  Umleitungen fehlen unter Umständen. Maßgeblich sind die Auskünfte der Verkehrsunternehmen (Aushänge, Ansagen,
+  offizielle Apps).
+- **Keine Rechtsberatung:** Die Ticketregeln (z. B. Aufhebung der Zugbindung, Nutzung mit Deutschlandticket) sind
+  vereinfacht und können von den Beförderungsbedingungen und Fahrgastrechten im Einzelfall abweichen.
+- **Anschlüsse und Alternativen** sind Vorschläge. Ob ein Anschluss erreicht wird oder eine Alternative mit dem Ticket
+  genutzt werden darf, liegt in der eigenen Verantwortung.
+- **Haftung:** Die Software wird ohne Gewährleistung bereitgestellt (siehe [LICENSE](LICENSE)). Für Schäden aus der Nutzung,
+  z. B. verpasste Verbindungen, zusätzliche Fahrt- oder Übernachtungskosten, wird – soweit gesetzlich zulässig – keine
+  Haftung übernommen. Die Haftung für Vorsatz und grobe Fahrlässigkeit sowie für Schäden aus der Verletzung des Lebens,
+  des Körpers oder der Gesundheit bleibt unberührt.
+- **Eigene Installationen** betreibt jede und jeder in eigener Verantwortung, einschließlich Datenschutz gegenüber Personen,
+  mit denen Reisen geteilt werden, und der Einhaltung der Nutzungsregeln von Transitous.
+
+*Disclaimer (English): Beta software, provided "as is" without warranty. Not affiliated with Deutsche Bahn or any transport
+operator. Timetable and real-time data come from open sources and may be incomplete or wrong; ticket rules are simplified
+and not legal advice. Always check official operator information. Self-hosted instances are operated at your own
+responsibility.*
 
 ## Lizenz
 

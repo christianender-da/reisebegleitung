@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { motisJourney, motisLeg } from '../src/motis.ts';
-import { progress, transfers } from '../src/progress.ts';
-import { cutLeg, refreshJourney } from '../src/refresh.ts';
-import { bindingLifted, coverage, searchModes } from '../src/tickets.ts';
-import { transitModes } from '../src/transitous.ts';
-import type { Journey } from '../src/types.ts';
+import { motisJourney, motisLeg } from '../src/core/motis.ts';
+import { progress, transfers } from '../src/core/progress.ts';
+import { cutLeg, refreshJourney } from '../src/core/refresh.ts';
+import { bindingLifted, coverage, searchModes } from '../src/core/tickets.ts';
+import { transitModes } from '../src/core/transitous.ts';
+import type { Journey } from '../src/core/types.ts';
 
 const fixture = (name: string) => JSON.parse(readFileSync(new URL(`./fixtures/${name}`, import.meta.url), 'utf8'));
 const plan = fixture('plan-darmstadt-berlin.json');
