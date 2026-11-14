@@ -1,5 +1,5 @@
 /** TripStore auf Cloudflare D1 (Schema: migrations/0001_journey.sql) */
-import type { Journey, Ticket } from '../core/index.ts';
+import { emptyBoarding, type Boarding, type Journey, type Ticket } from '../core/index.ts';
 import type { TripRecord, TripStore } from './store.ts';
 
 /** Nur die Teile von D1, die gebraucht werden (keine Abhängigkeit von @cloudflare/workers-types) */
@@ -26,6 +26,16 @@ interface Row {
   arrive_at: string;
   refreshed_at: string | null;
   created_at: string;
+  boarding: string | null;
+}
+
+function parseBoarding(s: string | null): Boarding {
+  try {
+    const b = s ? (JSON.parse(s) as Partial<Boarding>) : {};
+    return { checkins: Array.isArray(b.checkins) ? b.checkins : [], missed: Array.isArray(b.missed) ? b.missed : [] };
+  } catch {
+    return emptyBoarding();
+  }
 }
 
 function toRecord(r: Row): TripRecord {
@@ -41,6 +51,7 @@ function toRecord(r: Row): TripRecord {
     arriveAt: r.arrive_at,
     refreshedAt: r.refreshed_at,
     createdAt: r.created_at,
+    boarding: parseBoarding(r.boarding),
   };
 }
 
@@ -53,13 +64,37 @@ export function d1Store(db: D1Like): TripStore {
         .all<Row>();
       return rows.results.map(toRecord);
     },
+    async get(scope, id) {
+      const r = await db.prepare('SELECT * FROM journey_trips WHERE scope = ? AND id = ?').bind(scope, id).first<Row>();
+      return r ? toRecord(r) : null;
+    },
+    async listActive(departBefore, arriveAfter) {
+      const rows = await db.prepare('SELECT * FROM journey_trips WHERE depart_at <= ? AND arrive_at >= ? ORDER BY depart_at LIMIT 50').bind(departBefore, arriveAfter).all<Row>();
+      return rows.results.map(toRecord);
+    },
     async insert(t) {
       await db
         .prepare(
-          'INSERT INTO journey_trips (id, scope, owner, ticket, dticket, planned_journey, journey, depart_at, arrive_at, refreshed_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          'INSERT INTO journey_trips (id, scope, owner, ticket, dticket, planned_journey, journey, depart_at, arrive_at, refreshed_at, created_at, boarding) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         )
-        .bind(t.id, t.scope, t.owner, t.ticket, t.dticket ? 1 : 0, JSON.stringify(t.plannedJourney), JSON.stringify(t.journey), t.departAt, t.arriveAt, t.refreshedAt, t.createdAt)
+        .bind(
+          t.id,
+          t.scope,
+          t.owner,
+          t.ticket,
+          t.dticket ? 1 : 0,
+          JSON.stringify(t.plannedJourney),
+          JSON.stringify(t.journey),
+          t.departAt,
+          t.arriveAt,
+          t.refreshedAt,
+          t.createdAt,
+          JSON.stringify(t.boarding),
+        )
         .run();
+    },
+    async setBoarding(id, boarding) {
+      await db.prepare('UPDATE journey_trips SET boarding = ? WHERE id = ?').bind(JSON.stringify(boarding), id).run();
     },
     async updateLive(id, journey, arriveAt, refreshedAt) {
       await db.prepare('UPDATE journey_trips SET journey = ?, arrive_at = ?, refreshed_at = ? WHERE id = ?').bind(JSON.stringify(journey), arriveAt, refreshedAt, id).run();

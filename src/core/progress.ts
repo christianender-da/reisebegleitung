@@ -2,6 +2,7 @@
  * Live-Fortschritt einer Reise und Prüfung der Umstiege.
  */
 import { allStops, arrDelay, arrTime, depTime, journeyEnd, journeyPlannedEnd, journeyStart, ms } from './journey.ts';
+import { boardingState, type Boarding } from './boarding.ts';
 import type { Journey, Leg, Stopover } from './types.ts';
 
 export type Phase =
@@ -11,6 +12,8 @@ export type Phase =
   | {
       kind: 'riding';
       legIndex: number;
+      /** laut Check-in an Bord (sonst nach Fahrplan/Echtzeit angenommen) */
+      onBoard?: boolean;
       /** zuletzt erreichter/passierter Halt */
       last: Stopover;
       /** nächster Halt */
@@ -55,7 +58,7 @@ function positionInLeg(l: Leg, now: number): { last: Stopover; next: Stopover; f
   return { last: stops[lastIdx], next: stops[nextIdx], fraction: clamp((now - start) / (end - start)) };
 }
 
-export function progress(j: Journey, now = Date.now()): Progress {
+export function progress(j: Journey, now = Date.now(), boarding?: Boarding): Progress {
   const start = ms(journeyStart(j));
   const endIso = journeyEnd(j);
   const end = ms(endIso);
@@ -69,6 +72,10 @@ export function progress(j: Journey, now = Date.now()): Progress {
   };
   const ridesIdx = rideIndexes(j);
   if (!ridesIdx.length) return { ...base, phase: { kind: 'arrived', arrivedAt: endIso ?? '' } };
+
+  // Check-in hat Vorrang: wer eingestiegen ist, ist unterwegs – auch wenn der Zug laut Daten noch nicht abgefahren ist
+  const onBoard = boarding ? boardingState(j, boarding, now).onBoard : null;
+  if (onBoard !== null) return { ...base, phase: { kind: 'riding', legIndex: onBoard, onBoard: true, ...positionInLeg(j.legs[onBoard], now) } };
 
   for (let k = 0; k < ridesIdx.length; k++) {
     const i = ridesIdx[k];
@@ -90,7 +97,7 @@ export function progress(j: Journey, now = Date.now()): Progress {
   return { ...base, fraction: 1, phase: { kind: 'arrived', arrivedAt: endIso ?? '' } };
 }
 
-export type TransferState = 'ok' | 'tight' | 'missed' | 'cancelled';
+export type TransferState = 'ok' | 'tight' | 'missed' | 'cancelled' | 'done';
 
 export interface Transfer {
   /** Index des ankommenden und des abfahrenden Abschnitts in journey.legs */
@@ -111,6 +118,8 @@ export interface TransferOptions {
   minTransferMin?: number;
   /** „knapp“, wenn der Puffer weniger als so viele Minuten über der nötigen Zeit liegt (Standard 3) */
   tightMarginMin?: number;
+  /** Umstiege bis zum zuletzt eingecheckten Zug gelten als erledigt („done“) */
+  boarding?: Boarding;
 }
 
 /** Alle Umstiege zwischen aufeinanderfolgenden Fahrten mit Ampel */
@@ -118,6 +127,7 @@ export function transfers(j: Journey, opt: TransferOptions = {}): Transfer[] {
   const minTransfer = opt.minTransferMin ?? 2;
   const margin = opt.tightMarginMin ?? 3;
   const idx = rideIndexes(j);
+  const lastCheckin = opt.boarding ? boardingState(j, opt.boarding).lastCheckin : null;
   const out: Transfer[] = [];
   for (let k = 1; k < idx.length; k++) {
     const a = j.legs[idx[k - 1]];
@@ -127,7 +137,8 @@ export function transfers(j: Journey, opt: TransferOptions = {}): Transfer[] {
     const buffer = Math.round((ms(depTime(b.from)) - ms(arrTime(a.to))) / 60_000);
     const planned = Math.round((ms(b.from.plannedDeparture) - ms(a.to.plannedArrival)) / 60_000);
     let state: TransferState = 'ok';
-    if (b.cancelled || b.from.cancelled || a.cancelled || a.to.cancelled) state = 'cancelled';
+    if (lastCheckin !== null && idx[k] <= lastCheckin) state = 'done';
+    else if (b.cancelled || b.from.cancelled || a.cancelled || a.to.cancelled) state = 'cancelled';
     else if (buffer < needed) state = 'missed';
     else if (buffer < needed + margin) state = 'tight';
     out.push({ fromLeg: idx[k - 1], toLeg: idx[k], at: a.to.stop.name, bufferMin: buffer, plannedBufferMin: planned, neededMin: needed, state });
