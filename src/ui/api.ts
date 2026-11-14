@@ -28,6 +28,11 @@ export interface JourneyApi {
   createTrip(body: { planId: string; index: number; ticket: Ticket; dticket: boolean }): Promise<{ id: string }>;
   deleteTrip(id: string): Promise<void>;
   board(id: string, leg: number, action: 'checkin' | 'missed' | 'undo'): Promise<{ trip: TripView }>;
+  chooseAlternative(id: string, index: number): Promise<{ trip: TripView }>;
+  pushKey(): Promise<{ key: string | null }>;
+  subscribe(subscription: unknown, lang: string): Promise<void>;
+  unsubscribe(endpoint: string): Promise<void>;
+  testPush(lang: string): Promise<{ sent: number }>;
   stops(q: string): Promise<{ hits: StopHit[]; error?: string }>;
   plan(p: PlanParams): Promise<{ planId: string; journeys: Journey[] }>;
 }
@@ -65,6 +70,15 @@ export function createJourneyApi(base: string, opts: ApiOptions = {}): JourneyAp
       await call(`/trips/${encodeURIComponent(id)}`, { method: 'DELETE' });
     },
     board: (id, leg, action) => call(`/trips/${encodeURIComponent(id)}/boarding`, { body: { leg, action } }),
+    chooseAlternative: (id, index) => call(`/trips/${encodeURIComponent(id)}/alternative`, { body: { index } }),
+    pushKey: () => call('/push/key'),
+    subscribe: async (subscription, lang) => {
+      await call('/push/subscribe', { body: { subscription, lang } });
+    },
+    unsubscribe: async (endpoint) => {
+      await call('/push/unsubscribe', { body: { endpoint } });
+    },
+    testPush: (lang) => call('/push/test', { body: { lang } }),
     stops: (q) => call(`/stops?q=${encodeURIComponent(q)}`),
     plan: (p) =>
       call(

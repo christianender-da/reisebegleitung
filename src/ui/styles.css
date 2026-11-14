@@ -488,3 +488,52 @@
 .rb-transfer.state-done .rb-dot {
   background: var(--rb-muted);
 }
+
+.rb-alts {
+  border: 1px solid var(--rb-danger);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: color-mix(in srgb, var(--rb-danger) 6%, var(--rb-card));
+}
+
+.rb-alts-title {
+  margin: 0;
+  font-weight: 700;
+  color: var(--rb-danger);
+}
+
+.rb-alts .rb-results {
+  margin: 8px 0 4px;
+  background: var(--rb-card);
+}
+
+.rb-alts p {
+  margin: 2px 0;
+}
+
+.rb-chip {
+  padding: 0 6px;
+  border-radius: 999px;
+  border: 1px solid var(--rb-on);
+  color: var(--rb-on);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.rb-chip-bad {
+  border-color: var(--rb-danger);
+  color: var(--rb-danger);
+}
+
+.rb-uncovered .rb-line {
+  outline: 2px solid var(--rb-danger);
+  outline-offset: 1px;
+}
+
+.rb-push {
+  margin-top: 4px;
+}
+
+.rb-state-warn .rb-dot {
+  background: var(--rb-danger);
+}

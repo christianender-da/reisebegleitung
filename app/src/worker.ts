@@ -19,6 +19,8 @@ interface Env {
   CONTACT?: string;
   /** optional: andere MOTIS-Instanz (z. B. eigene oder lokale Weiterleitung) */
   TRANSITOUS_URL?: string;
+  /** optional (Secret): privater VAPID-Schlüssel als JWK für Benachrichtigungen – npm run vapid-keys */
+  VAPID_PRIVATE_JWK?: string;
 }
 
 type App = { Bindings: Env };
@@ -48,9 +50,16 @@ let service: JourneyService | null = null;
 let serviceKey = '';
 function journeyService(env: Env): JourneyService | null {
   if (!contactOk(env.CONTACT)) return null;
-  const k = `${env.CONTACT}|${env.TRANSITOUS_URL ?? ''}`;
+  const k = `${env.CONTACT}|${env.TRANSITOUS_URL ?? ''}|${env.VAPID_PRIVATE_JWK ?? ''}`;
   if (!service || serviceKey !== k) {
-    service = createJourneyService({ store: d1Store(env.DB), userAgent: `reisebegleitung/${VERSION} (+${env.CONTACT!.trim()})`, apiBase: env.TRANSITOUS_URL || undefined });
+    const contact = env.CONTACT!.trim();
+    service = createJourneyService({
+      store: d1Store(env.DB),
+      userAgent: `reisebegleitung/${VERSION} (+${contact})`,
+      apiBase: env.TRANSITOUS_URL || undefined,
+      // Push-Dienste verlangen einen Kontakt als mailto: oder https:
+      push: { privateJwk: env.VAPID_PRIVATE_JWK, subject: contact.includes('@') && !contact.startsWith('http') ? `mailto:${contact}` : contact },
+    });
     serviceKey = k;
   }
   return service;
