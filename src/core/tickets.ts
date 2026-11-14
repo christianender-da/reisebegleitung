@@ -1,9 +1,10 @@
 /**
  * Ticketregeln für die Suche nach Verbindungen und (später) nach Alternativen.
  *
- * Vereinfachte Fahrgastrechte (DB, Stand 2026): Bei Sparpreisen entfällt die Zugbindung, wenn am Ziel eine
- * Verspätung von mindestens 20 Minuten zu erwarten ist oder ein Anschluss verpasst wird. Mit Deutschlandticket
- * dürfen Nahverkehrszüge immer genutzt werden. Einzelne IC-Strecken mit D-Ticket-Freigabe werden nicht berücksichtigt.
+ * Vereinfachte Fahrgastrechte (DB, Stand 2026): Die Zugbindung von Sparpreisen gilt nur für Fernverkehrszüge –
+ * Nahverkehrszüge auf der Strecke sind frei wählbar. Sie entfällt, wenn am Ziel eine Verspätung von mindestens
+ * 20 Minuten zu erwarten ist oder ein Anschluss verpasst wird. Mit Deutschlandticket dürfen Nahverkehrszüge immer
+ * genutzt werden. Nicht berücksichtigt: Streckenbindung, City-Ticket/Stadtverkehr, IC-Strecken mit D-Ticket-Freigabe.
  */
 import { journeyEnd, journeyPlannedEnd } from './journey.ts';
 import { transfers } from './progress.ts';
@@ -78,10 +79,9 @@ export function coverage(mode: Mode, ctx: TicketContext, opts: { bindingLifted?:
     case 'bc100':
       return 'ticket';
     case 'spar':
-      if (opts.booked) return 'ticket';
+      // Zugbindung nur im Fernverkehr
+      if (opts.booked || local) return 'ticket';
       if (opts.bindingLifted) return 'binding-lifted';
-      if (local && ctx.hasDTicket) return 'dticket';
-      // Nahverkehr gehört bei Sparpreisen meist zur gebuchten Strecke, aber nicht frei wählbar
       return 'not-covered';
     case 'other':
     default:

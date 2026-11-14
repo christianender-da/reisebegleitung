@@ -6,6 +6,11 @@
  *   POST   /trips          { planId, index, ticket, dticket }          (canEdit)
  *   DELETE /trips/<id>                                                   (canEdit)
  *   POST   /trips/<id>/boarding  { leg, action: checkin|missed|undo }    (canEdit)
+ *   POST   /trips/<id>/alternative  { index }                           (canEdit)
+ *   GET    /push/key                                                    (canEdit)  → { key } (null = Push nicht eingerichtet)
+ *   POST   /push/subscribe   { subscription, lang }                    (canEdit)
+ *   POST   /push/unsubscribe { endpoint }                              (canEdit)
+ *   POST   /push/test        { lang }                                  (canEdit)  → { sent }
  *   GET    /stops?q=                                                     (canEdit)
  *   GET    /plan?from&to&time&arriveBy=1&ticket&dticket=1                (canEdit)
  */
@@ -24,7 +29,7 @@ function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' } });
 }
 
-const status = (code: string) => (code === 'bad-request' || code === 'plan-expired' ? 400 : code === 'not-found' ? 404 : 502);
+const status = (code: string) => (code === 'bad-request' || code === 'plan-expired' ? 400 : code === 'not-found' ? 404 : code === 'push-off' ? 409 : 502);
 
 /**
  * path: Pfad unterhalb des Einhängepunkts, z. B. „/trips“ (bei Einhängen unter /api/journey der Rest nach /api/journey)
@@ -57,6 +62,21 @@ export async function handleJourneyRequest(service: JourneyService, request: Req
     if (parts[0] === 'trips' && parts.length === 2 && method === 'DELETE') {
       await service.deleteTrip(ctx.scope, decodeURIComponent(parts[1]));
       return json({ ok: true });
+    }
+    if (parts[0] === 'trips' && parts.length === 3 && parts[2] === 'alternative' && method === 'POST') {
+      return json({ trip: await service.chooseAlternative(ctx.scope, decodeURIComponent(parts[1]), body.index) });
+    }
+    if (parts[0] === 'push' && parts.length === 2) {
+      if (parts[1] === 'key' && method === 'GET') return json({ key: service.pushKey() });
+      if (parts[1] === 'subscribe' && method === 'POST') {
+        await service.subscribe(ctx.scope, body);
+        return json({ ok: true });
+      }
+      if (parts[1] === 'unsubscribe' && method === 'POST') {
+        await service.unsubscribe(body);
+        return json({ ok: true });
+      }
+      if (parts[1] === 'test' && method === 'POST') return json({ sent: await service.testPush(ctx.scope, body.lang) });
     }
     if (parts[0] === 'stops' && parts.length === 1 && method === 'GET') {
       try {

@@ -1,11 +1,16 @@
 /**
- * Reisebegleitung auf dem Server: Haltestellensuche, Verbindungssuche, Reisen speichern und mit Echtzeit auffrischen.
+ * Reisebegleitung auf dem Server: Haltestellensuche, Verbindungssuche, Reisen speichern und mit Echtzeit auffrischen,
+ * bei geplatzten Anschlüssen Alternativen suchen und per Web Push melden.
  *
- * Last für Transitous gering halten: /plan nur auf Nutzeranfrage, Fahrtverläufe (/trip) 60 s im Cache,
- * Live-Abfrage nur von 3 h vor Abfahrt bis 30 min nach Ankunft.
+ * Last für Transitous gering halten: /plan nur auf Nutzeranfrage bzw. bei einem neuen Auslöser (danach höchstens alle
+ * 10 min erneut), Fahrtverläufe (/trip) 60 s im Cache, Live-Abfrage nur von 3 h vor Abfahrt bis 30 min nach Ankunft.
  */
 import {
+  alternativesTrigger,
   applyBoarding,
+  liftedFor,
+  rateAlternative,
+  replaceRemainder,
   createClient,
   emptyBoarding,
   journeyEnd,
@@ -25,7 +30,8 @@ import {
   type Transfer,
   type TransitousClient,
 } from '../core/index.ts';
-import type { CacheLike, TripRecord, TripStore } from './store.ts';
+import type { CacheLike, StoredAlternatives, TripRecord, TripStore } from './store.ts';
+import { parseVapidJwk, sendPush, validSubscription, vapidPublicKey, type VapidConfig } from './webpush.ts';
 
 export interface JourneyServiceOptions {
   store: TripStore;
@@ -37,6 +43,12 @@ export interface JourneyServiceOptions {
   cache?: CacheLike | null;
   /** für Tests */
   client?: TransitousClient;
+  /** Web Push: privater VAPID-Schlüssel (JWK als JSON, z. B. Secret) + Kontakt (mailto:/https:) – ohne: keine Benachrichtigungen */
+  push?: { privateJwk: string | undefined; subject: string } | null;
+  /** Ziel beim Antippen der Benachrichtigung (Standard „/“) */
+  notifyUrl?: (scope: string) => string;
+  /** für Tests: Versand ersetzen */
+  sendPush?: typeof sendPush;
 }
 
 export interface TripView {
@@ -45,6 +57,7 @@ export interface TripView {
   dticket: boolean;
   journey: Journey;
   boarding: Boarding;
+  alternatives: StoredAlternatives | null;
   progress: Progress;
   transfers: Transfer[];
   refreshedAt: string | null;
@@ -75,6 +88,9 @@ const LIVE_AFTER_MS = 30 * 60_000;
 /** mehr als 30 min vor Abfahrt nur alle 5 min auffrischen */
 const EARLY_MS = 30 * 60_000;
 const EARLY_REFRESH_MS = 5 * 60_000;
+/** gleicher Auslöser: Alternativen höchstens so oft neu suchen */
+const ALT_REFRESH_MS = 10 * 60_000;
+const ALT_RESULTS = 4;
 
 /** Ist ein Live-Abgleich fällig? (3 h vor Abfahrt bis 30 min nach Ankunft; vor Abfahrt seltener) */
 export function refreshDue(r: Pick<TripRecord, 'departAt' | 'arriveAt' | 'refreshedAt'>, t: number): boolean {
@@ -121,6 +137,53 @@ export function createJourneyService(opts: JourneyServiceOptions) {
   const key = (path: string) => new Request(`https://cache.internal/reisebegleitung/${path}`);
   // ohne Cache-API (z. B. Tests): Suchergebnisse im Speicher
   const memory = new Map<string, Journey[]>();
+  const vapidJwk = parseVapidJwk(opts.push?.privateJwk);
+  const vapid: VapidConfig | null = vapidJwk && opts.push ? { privateJwk: vapidJwk, subject: opts.push.subject } : null;
+  const push = opts.sendPush ?? sendPush;
+
+  /** Alternativen pflegen: neu suchen bei neuem Auslöser (und alle 10 min), löschen, wenn alles wieder passt */
+  async function maintainAlternatives(r: TripRecord, t: number): Promise<TripRecord> {
+    const trigger = alternativesTrigger(r.journey, r.boarding, t);
+    if (!trigger) {
+      if (r.alternatives) await store.setAlternatives(r.id, null);
+      return r.alternatives ? { ...r, alternatives: null } : r;
+    }
+    const prev = r.alternatives;
+    if (prev && prev.key === trigger.key && t - Date.parse(prev.computedAt) < ALT_REFRESH_MS) return r;
+    const ctx = { ticket: r.ticket, hasDTicket: r.dticket };
+    const lifted = liftedFor(r.journey, trigger);
+    const bookedTripIds = r.plannedJourney.legs.flatMap((l) => (l.tripId ? [l.tripId] : []));
+    const dest = r.journey.legs.at(-1)!.to.stop;
+    const alt: StoredAlternatives = { key: trigger.key, reason: trigger.reason, keepLegs: trigger.keepLegs, origin: trigger.origin, time: trigger.time, line: trigger.line, bindingLifted: lifted, computedAt: nowIso(), options: [] };
+    try {
+      const found = await client.plan({ from: trigger.origin.id, to: dest.id, time: trigger.time, modes: searchModes(ctx), results: ALT_RESULTS + 2 });
+      alt.options = found
+        .filter((j) => j.legs.some((l) => l.kind === 'ride'))
+        .map((j) => rateAlternative(j, ctx, { bindingLifted: lifted, bookedTripIds }))
+        // zuerst mit dem Ticket nutzbare, dann nach Ankunft
+        .sort((a, b) => Number(b.covered) - Number(a.covered) || Date.parse(journeyEnd(a.journey) ?? '') - Date.parse(journeyEnd(b.journey) ?? ''))
+        .slice(0, ALT_RESULTS);
+    } catch (e) {
+      alt.error = errorCode(e);
+      alt.options = prev?.key === trigger.key ? prev.options : [];
+    }
+    await store.setAlternatives(r.id, alt);
+    const next = { ...r, alternatives: alt };
+    if (!prev || prev.key !== trigger.key) await notify(next);
+    return next;
+  }
+
+  /** Benachrichtigung an alle Geräte des Bereichs */
+  async function notify(r: TripRecord) {
+    if (!vapid || !r.alternatives) return;
+    const subs = await store.listPush(r.scope);
+    await Promise.all(
+      subs.map(async (s) => {
+        const res = await push(s, { ...pushMessage(r, s.lang === 'en' ? 'en' : 'de'), url: opts.notifyUrl?.(r.scope) ?? '/', tag: `trip-${r.id}` }, vapid, { topic: `trip${r.id}` });
+        if (res === 'gone') await store.removePush(s.endpoint);
+      }),
+    );
+  }
 
   async function cachedTrip(tripId: string): Promise<Leg[] | null> {
     if (!cache) return client.trip(tripId);
@@ -143,7 +206,8 @@ export function createJourneyService(opts: JourneyServiceOptions) {
     const refreshedAt = nowIso();
     const arriveAt = journeyEnd(res.journey) ?? r.arriveAt;
     await store.updateLive(r.id, res.journey, arriveAt, refreshedAt);
-    return { record: { ...r, journey: res.journey, arriveAt, refreshedAt }, stale: res.failed.length > 0 };
+    const record = await maintainAlternatives({ ...r, journey: res.journey, arriveAt, refreshedAt }, Date.now());
+    return { record, stale: res.failed.length > 0 };
   }
 
   function view({ record: r, stale }: { record: TripRecord; stale?: boolean }, t: number): TripView {
@@ -153,6 +217,7 @@ export function createJourneyService(opts: JourneyServiceOptions) {
       dticket: r.dticket,
       journey: r.journey,
       boarding: r.boarding,
+      alternatives: r.alternatives,
       progress: progress(r.journey, t, r.boarding),
       transfers: transfers(r.journey, { boarding: r.boarding }),
       refreshedAt: r.refreshedAt,
@@ -223,6 +288,7 @@ export function createJourneyService(opts: JourneyServiceOptions) {
         refreshedAt: t,
         createdAt: t,
         boarding: emptyBoarding(),
+        alternatives: null,
       });
       await store.setPref(scope, 'dticket', dticket ? '1' : '0');
       return id;
@@ -252,7 +318,55 @@ export function createJourneyService(opts: JourneyServiceOptions) {
       if (typeof leg !== 'number' || r.journey.legs[leg]?.kind !== 'ride') throw new JourneyError('bad-request');
       const boarding = applyBoarding(r.journey, r.boarding, leg, action);
       await store.setBoarding(r.id, boarding);
-      return view({ record: { ...r, boarding } }, Date.now());
+      // „verpasst“ → sofort Alternativen suchen
+      return view({ record: await maintainAlternatives({ ...r, boarding }, Date.now()) }, Date.now());
+    },
+
+    /** Gewählte Alternative übernehmen: restliche Reise ersetzen */
+    async chooseAlternative(scope: string, id: string, index: unknown): Promise<TripView> {
+      const r = await store.get(scope, id);
+      if (!r) throw new JourneyError('not-found');
+      const option = typeof index === 'number' ? r.alternatives?.options[index] : undefined;
+      if (!r.alternatives || !option) throw new JourneyError('bad-request');
+      const { journey, boarding } = replaceRemainder(r.journey, r.boarding, r.alternatives.keepLegs, option.journey);
+      const t = nowIso();
+      const arriveAt = journeyEnd(journey) ?? r.arriveAt;
+      await store.updateLive(r.id, journey, arriveAt, t);
+      await store.setBoarding(r.id, boarding);
+      await store.setAlternatives(r.id, null);
+      return view({ record: { ...r, journey, boarding, arriveAt, refreshedAt: t, alternatives: null } }, Date.now());
+    },
+
+    /** öffentlicher VAPID-Schlüssel (applicationServerKey) oder null, wenn Push nicht eingerichtet ist */
+    pushKey(): string | null {
+      return vapid ? vapidPublicKey(vapid.privateJwk) : null;
+    },
+
+    async subscribe(scope: string, b: { subscription?: unknown; lang?: unknown }) {
+      if (!vapid) throw new JourneyError('push-off');
+      if (!validSubscription(b.subscription)) throw new JourneyError('bad-request');
+      await store.addPush({ ...b.subscription, scope, lang: b.lang === 'en' ? 'en' : 'de' });
+    },
+
+    async unsubscribe(b: { endpoint?: unknown }) {
+      if (typeof b.endpoint === 'string' && b.endpoint.length <= 1000) await store.removePush(b.endpoint);
+    },
+
+    /** Testnachricht an alle Geräte des Bereichs */
+    async testPush(scope: string, lang: unknown): Promise<number> {
+      if (!vapid) throw new JourneyError('push-off');
+      const de = lang !== 'en';
+      let sent = 0;
+      for (const s of await store.listPush(scope)) {
+        const res = await push(
+          s,
+          { title: de ? 'Reisebegleitung' : 'Journey companion', body: de ? 'Benachrichtigungen funktionieren.' : 'Notifications are working.', url: opts.notifyUrl?.(scope) ?? '/', tag: 'test' },
+          vapid,
+        );
+        if (res === 'ok') sent++;
+        if (res === 'gone') await store.removePush(s.endpoint);
+      }
+      return sent;
     },
 
     /** Hintergrund (z. B. Cron jede Minute): alle laufenden Reisen auffrischen, wenn fällig */
@@ -267,3 +381,36 @@ export function createJourneyService(opts: JourneyServiceOptions) {
 }
 
 export type JourneyService = ReturnType<typeof createJourneyService>;
+
+const PUSH_TEXT = {
+  de: {
+    'missed-train': '{line} verpasst',
+    connection: 'Anschluss {line} nicht erreichbar',
+    cancelled: '{line} fällt aus',
+    options: '{n} Alternativen ab {stop} – früheste Ankunft {time}',
+    option1: '1 Alternative ab {stop} – Ankunft {time}',
+    none: 'Keine passende Alternative gefunden – bitte selbst prüfen.',
+  },
+  en: {
+    'missed-train': 'Missed {line}',
+    connection: 'Connection {line} will be missed',
+    cancelled: '{line} is cancelled',
+    options: '{n} alternatives from {stop} – earliest arrival {time}',
+    option1: '1 alternative from {stop} – arrival {time}',
+    none: 'No suitable alternative found – please check yourself.',
+  },
+};
+
+/** Text der Benachrichtigung zu neuen Alternativen */
+export function pushMessage(r: Pick<TripRecord, 'alternatives'>, lang: 'de' | 'en'): { title: string; body: string } {
+  const a = r.alternatives!;
+  const T = PUSH_TEXT[lang];
+  const fill = (s: string, v: Record<string, string | number>) => Object.entries(v).reduce((acc, [k, x]) => acc.replace(`{${k}}`, String(x)), s);
+  const title = fill(T[a.reason], { line: a.line ?? '' }).trim();
+  const covered = a.options.filter((o) => o.covered);
+  const list = covered.length ? covered : a.options;
+  if (!list.length) return { title, body: T.none };
+  const earliest = Math.min(...list.map((o) => Date.parse(journeyEnd(o.journey) ?? '')));
+  const time = new Date(earliest).toLocaleTimeString(lang === 'de' ? 'de-DE' : 'en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin' });
+  return { title, body: fill(list.length === 1 ? T.option1 : T.options, { n: list.length, stop: a.origin.name, time }) };
+}

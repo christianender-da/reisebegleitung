@@ -5,17 +5,22 @@ import { motisJourney, motisLeg } from '../src/core/motis.ts';
 import type { TransitousClient } from '../src/core/transitous.ts';
 import { createJourneyService } from '../src/server/service.ts';
 import { handleJourneyRequest } from '../src/server/handler.ts';
-import type { TripRecord, TripStore } from '../src/server/store.ts';
+import type { PushRecord, TripRecord, TripStore } from '../src/server/store.ts';
+import { emptyBoarding } from '../src/core/boarding.ts';
+import type { Journey } from '../src/core/types.ts';
+import { pushMessage } from '../src/server/service.ts';
 
 const fixture = (name: string) => JSON.parse(readFileSync(new URL(`./fixtures/${name}`, import.meta.url), 'utf8'));
 const plan = fixture('plan-darmstadt-berlin.json');
 const trip = fixture('trip-nj409.json');
 
-function memoryStore(): TripStore & { rows: TripRecord[] } {
+function memoryStore(): TripStore & { rows: TripRecord[]; pushes: Map<string, PushRecord> } {
   const rows: TripRecord[] = [];
   const prefs = new Map<string, string>();
+  const pushes = new Map<string, PushRecord>();
   return {
     rows,
+    pushes,
     async list(scope, after) {
       return rows.filter((r) => r.scope === scope && r.arriveAt >= after).sort((a, b) => a.departAt.localeCompare(b.departAt));
     },
@@ -30,6 +35,18 @@ function memoryStore(): TripStore & { rows: TripRecord[] } {
     },
     async setBoarding(id, boarding) {
       rows.find((r) => r.id === id)!.boarding = boarding;
+    },
+    async setAlternatives(id, alternatives) {
+      rows.find((r) => r.id === id)!.alternatives = alternatives;
+    },
+    async addPush(p) {
+      pushes.set(p.endpoint, p);
+    },
+    async removePush(endpoint) {
+      pushes.delete(endpoint);
+    },
+    async listPush(scope) {
+      return [...pushes.values()].filter((p) => p.scope === scope);
     },
     async updateLive(id, journey, arriveAt, refreshedAt) {
       Object.assign(rows.find((r) => r.id === id)!, { journey, arriveAt, refreshedAt });
@@ -177,5 +194,95 @@ test('Hintergrund: nur fällige Reisen auffrischen', async () => {
 test('App-Migrationen entsprechen dem Paket-Schema (Check-in)', () => {
   const a = readFileSync(new URL('../migrations/0002_boarding.sql', import.meta.url), 'utf8');
   const b = readFileSync(new URL('../app/migrations/0003_boarding.sql', import.meta.url), 'utf8');
+  assert.equal(b, a);
+});
+
+/** alle Zeitangaben einer Reise verschieben */
+function shift(j: Journey, ms: number): Journey {
+  return JSON.parse(JSON.stringify(j), (k, v) => (typeof v === 'string' && /^\d{4}-\d\d-\d\dT[\d:.]+Z$/.test(v) ? new Date(Date.parse(v) + ms).toISOString() : v));
+}
+
+test('Anschluss platzt: Alternativen, eine Benachrichtigung, Übernehmen', async () => {
+  const store = memoryStore();
+  const sent: { title: string; body: string }[] = [];
+  const jwk = await crypto.subtle.exportKey('jwk', ((await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign'])) as CryptoKeyPair).privateKey);
+  const client: TransitousClient = { ...fakeClient, trip: async () => null };
+  const service = createJourneyService({
+    store,
+    userAgent: 'test/1',
+    client,
+    cache: null,
+    push: { privateJwk: JSON.stringify(jwk), subject: 'mailto:a@b.de' },
+    sendPush: async (_s, msg) => {
+      sent.push(msg as { title: string; body: string });
+      return 'ok';
+    },
+  });
+  const ctx = { scope: 'w1', owner: 'me', canEdit: true };
+  // S6 fährt in 10 min, kommt aber 28 min zu spät in Frankfurt Süd an → Umstieg zum NJ nicht erreichbar
+  const base = motisJourney(plan.itineraries[1]);
+  const j = shift(base, Date.now() + 10 * 60_000 - Date.parse(base.legs[0].from.plannedDeparture!));
+  j.legs[0].to.arrival = new Date(Date.parse(j.legs[0].to.plannedArrival!) + 28 * 60_000).toISOString();
+  const t = new Date().toISOString();
+  store.rows.push({ id: 'trip1', scope: 'w1', owner: 'me', ticket: 'spar', dticket: false, plannedJourney: j, journey: j, departAt: j.legs[0].from.plannedDeparture!, arriveAt: j.legs[2].to.plannedArrival!, refreshedAt: '2026-01-01T00:00:00Z', createdAt: t, boarding: emptyBoarding(), alternatives: null });
+  await store.addPush({ endpoint: 'https://fcm.googleapis.com/fcm/send/x', scope: 'w1', lang: 'de', keys: { p256dh: 'x', auth: 'y' } });
+
+  assert.deepEqual(await service.refreshActive(), { checked: 1, refreshed: 1 });
+  const alt = store.rows[0].alternatives!;
+  assert.equal(alt.reason, 'connection');
+  assert.equal(alt.keepLegs, 1);
+  assert.equal(alt.origin.name, 'Frankfurt (Main) Südbahnhof');
+  assert.equal(alt.bindingLifted, true);
+  assert.equal(alt.options.length, 2);
+  assert.ok(alt.options.every((o) => o.covered), 'Sparpreis mit aufgehobener Zugbindung');
+  assert.equal(sent.length, 1);
+  assert.match(sent[0].title, /^Anschluss .+ nicht erreichbar$/);
+  assert.match(sent[0].body, /^2 Alternativen ab Frankfurt \(Main\) Südbahnhof – früheste Ankunft \d\d:\d\d$/);
+
+  // gleicher Auslöser → keine zweite Nachricht
+  store.rows[0].refreshedAt = '2026-01-01T00:00:00Z';
+  await service.refreshActive();
+  assert.equal(sent.length, 1);
+
+  // Übernehmen: S6 bleibt, Rest = Alternative 0
+  const res = await handleJourneyRequest(service, req('/trips/trip1/alternative', { method: 'POST', body: '{"index":0}' }), '/trips/trip1/alternative', ctx);
+  assert.equal(res.status, 200);
+  const trip = (await res.json()).trip;
+  assert.equal(trip.alternatives, null);
+  assert.equal(trip.journey.legs[0].line, 'S6');
+  assert.equal(trip.journey.legs.length, 1 + alt.options[0].journey.legs.length);
+  assert.equal(store.rows[0].alternatives, null);
+  assert.equal((await handleJourneyRequest(service, req('/trips/trip1/alternative', { method: 'POST', body: '{"index":0}' }), '/trips/trip1/alternative', ctx)).status, 400);
+});
+
+test('Push-Endpunkte', async () => {
+  const jwk = await crypto.subtle.exportKey('jwk', ((await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign'])) as CryptoKeyPair).privateKey);
+  const store = memoryStore();
+  const on = createJourneyService({ store, userAgent: 'test/1', client: fakeClient, cache: null, push: { privateJwk: JSON.stringify(jwk), subject: 'mailto:a@b.de' } });
+  const off = createJourneyService({ store, userAgent: 'test/1', client: fakeClient, cache: null });
+  const ctx = { scope: 'w1', owner: 'me', canEdit: true };
+  const key = await (await handleJourneyRequest(on, req('/push/key'), '/push/key', ctx)).json();
+  assert.equal(key.key.length, 87);
+  assert.deepEqual(await (await handleJourneyRequest(off, req('/push/key'), '/push/key', ctx)).json(), { key: null });
+  const p256dh = Buffer.from(new Uint8Array(65).fill(4)).toString('base64url');
+  const sub = { endpoint: 'https://web.push.apple.com/abc', keys: { p256dh, auth: Buffer.alloc(16, 1).toString('base64url') } };
+  const post = (path: string, body: unknown) => req(path, { method: 'POST', body: JSON.stringify(body) });
+  assert.equal((await handleJourneyRequest(on, post('/push/subscribe', { subscription: sub, lang: 'en' }), '/push/subscribe', ctx)).status, 200);
+  assert.equal(store.pushes.get(sub.endpoint)?.lang, 'en');
+  assert.equal((await handleJourneyRequest(on, post('/push/subscribe', { subscription: { ...sub, endpoint: 'https://evil.example/x' } }), '/push/subscribe', ctx)).status, 400);
+  assert.equal((await handleJourneyRequest(off, post('/push/subscribe', { subscription: sub }), '/push/subscribe', ctx)).status, 409);
+  assert.equal((await handleJourneyRequest(on, post('/push/subscribe', { subscription: sub }), '/push/subscribe', { ...ctx, canEdit: false })).status, 403);
+  assert.equal((await handleJourneyRequest(on, post('/push/unsubscribe', { endpoint: sub.endpoint }), '/push/unsubscribe', ctx)).status, 200);
+  assert.equal(store.pushes.size, 0);
+});
+
+test('Benachrichtigungstext ohne Alternativen', () => {
+  const m = pushMessage({ alternatives: { key: 'k', reason: 'cancelled', keepLegs: 0, origin: { id: 'x', name: 'Mainz Hbf' }, time: '', line: 'RE 2', bindingLifted: true, computedAt: '', options: [] } }, 'de');
+  assert.deepEqual(m, { title: 'RE 2 fällt aus', body: 'Keine passende Alternative gefunden – bitte selbst prüfen.' });
+});
+
+test('App-Migrationen entsprechen dem Paket-Schema (Alternativen)', () => {
+  const a = readFileSync(new URL('../migrations/0003_alternatives.sql', import.meta.url), 'utf8');
+  const b = readFileSync(new URL('../app/migrations/0004_alternatives.sql', import.meta.url), 'utf8');
   assert.equal(b, a);
 });

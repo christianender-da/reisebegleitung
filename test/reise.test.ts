@@ -128,8 +128,8 @@ test('Tickets: Suche und Zugbindung', () => {
   const spar = { ticket: 'spar' as const, hasDTicket: true };
   assert.equal(coverage('highspeed', spar), 'not-covered');
   assert.equal(coverage('highspeed', spar, { bindingLifted: true }), 'binding-lifted');
-  assert.equal(coverage('regional', spar), 'dticket');
-  assert.equal(coverage('regional', { ticket: 'spar', hasDTicket: false }), 'not-covered');
+  assert.equal(coverage('regional', spar), 'ticket');
+  assert.equal(coverage('regional', { ticket: 'spar', hasDTicket: false }), 'ticket');
   assert.equal(coverage('highspeed', { ticket: 'dticket', hasDTicket: true }), 'not-covered');
   assert.equal(coverage('highspeed', { ticket: 'bc100', hasDTicket: false }), 'ticket');
 

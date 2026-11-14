@@ -1,6 +1,6 @@
 /** TripStore auf Cloudflare D1 (Schema: migrations/0001_journey.sql) */
 import { emptyBoarding, type Boarding, type Journey, type Ticket } from '../core/index.ts';
-import type { TripRecord, TripStore } from './store.ts';
+import type { PushRecord, StoredAlternatives, TripRecord, TripStore } from './store.ts';
 
 /** Nur die Teile von D1, die gebraucht werden (keine Abhängigkeit von @cloudflare/workers-types) */
 export interface D1Like {
@@ -27,6 +27,16 @@ interface Row {
   refreshed_at: string | null;
   created_at: string;
   boarding: string | null;
+  alternatives: string | null;
+}
+
+function parseJson<T>(s: string | null): T | null {
+  if (!s) return null;
+  try {
+    return JSON.parse(s) as T;
+  } catch {
+    return null;
+  }
 }
 
 function parseBoarding(s: string | null): Boarding {
@@ -52,6 +62,7 @@ function toRecord(r: Row): TripRecord {
     refreshedAt: r.refreshed_at,
     createdAt: r.created_at,
     boarding: parseBoarding(r.boarding),
+    alternatives: parseJson<StoredAlternatives>(r.alternatives),
   };
 }
 
@@ -95,6 +106,27 @@ export function d1Store(db: D1Like): TripStore {
     },
     async setBoarding(id, boarding) {
       await db.prepare('UPDATE journey_trips SET boarding = ? WHERE id = ?').bind(JSON.stringify(boarding), id).run();
+    },
+    async setAlternatives(id, alternatives) {
+      await db.prepare('UPDATE journey_trips SET alternatives = ? WHERE id = ?').bind(alternatives ? JSON.stringify(alternatives) : null, id).run();
+    },
+    async addPush(p) {
+      await db
+        .prepare(
+          'INSERT INTO journey_push (endpoint, scope, p256dh, auth, lang, created_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(endpoint) DO UPDATE SET scope = excluded.scope, p256dh = excluded.p256dh, auth = excluded.auth, lang = excluded.lang',
+        )
+        .bind(p.endpoint, p.scope, p.keys.p256dh, p.keys.auth, p.lang, new Date().toISOString())
+        .run();
+    },
+    async removePush(endpoint) {
+      await db.prepare('DELETE FROM journey_push WHERE endpoint = ?').bind(endpoint).run();
+    },
+    async listPush(scope) {
+      const rows = await db
+        .prepare('SELECT endpoint, scope, p256dh, auth, lang FROM journey_push WHERE scope = ?')
+        .bind(scope)
+        .all<{ endpoint: string; scope: string; p256dh: string; auth: string; lang: string }>();
+      return rows.results.map((r): PushRecord => ({ endpoint: r.endpoint, scope: r.scope, lang: r.lang, keys: { p256dh: r.p256dh, auth: r.auth } }));
     },
     async updateLive(id, journey, arriveAt, refreshedAt) {
       await db.prepare('UPDATE journey_trips SET journey = ?, arrive_at = ?, refreshed_at = ? WHERE id = ?').bind(JSON.stringify(journey), arriveAt, refreshedAt, id).run();

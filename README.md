@@ -15,9 +15,12 @@ as building blocks for your own dashboard, or as a self-hosted Cloudflare app wi
 - Umstiegsampel: ok · knapp · nicht erreichbar · fällt aus · geschafft
 - Check-in je Zug („Eingestiegen“): Status „An Bord“, Nachfrage „Zug verpasst?“, neue Verbindung ab dem Halt
 - Aktualisierung im Hintergrund (Cron jede Minute), auch wenn niemand die Seite offen hat
+- **Alternativen**, sobald ein Anschluss nicht erreichbar ist, ein Zug ausfällt oder ein Zug verpasst wurde – mit
+  Hinweis, ob sie mit dem Ticket nutzbar sind (Zugbindung aufgehoben, Deutschlandticket); „Übernehmen“ ersetzt die
+  restliche Reise
+- **Benachrichtigungen** per Web Push (ohne Zusatz-App; auf iPhone/iPad nach „Zum Home-Bildschirm“)
 
-Geplant: Alternativen bei verpassten Anschlüssen (Web Push), Teilen-Link für Familie und Freunde, der 2 h nach
-Ankunft abläuft.
+Geplant: Teilen-Link für Familie und Freunde, der 2 h nach Ankunft abläuft.
 
 ## Drei Arten der Nutzung
 
@@ -57,6 +60,15 @@ Danach wird **einmal** ein Wiederherstellungscode angezeigt – sicher aufbewahr
 „Passkey hinzufügen“ (iCloud-/Google-Schlüsselbund synchronisiert Passkeys ohnehin). Auf dem iPhone über „Teilen →
 Zum Home-Bildschirm“ als App installieren.
 
+**Benachrichtigungen (optional):** einmal einen VAPID-Schlüssel erzeugen und als Secret hinterlegen, dann neu deployen:
+
+```bash
+npm run vapid-keys | npx wrangler secret put VAPID_PRIVATE_JWK --config app/wrangler.jsonc
+```
+
+Danach in der App „🔔 Benachrichtigungen bei Problemen“ antippen (je Gerät). Als Absender-Kontakt für die Push-Dienste
+wird `CONTACT` verwendet.
+
 Updates: `git pull && npm ci && npm run app:migrate && npm run app:deploy`.
 
 Die App frischt laufende Reisen per Cron jede Minute auf (`triggers` in `app/wrangler.jsonc`; im kostenlosen Plan
@@ -86,6 +98,9 @@ return handleJourneyRequest(service, request, '/trips', { scope: 'default', owne
 // Hintergrund (Cron jede Minute): laufende Reisen auffrischen
 export default { fetch, scheduled: (_e, env, ctx) => ctx.waitUntil(service.refreshActive()) };
 ```
+
+Benachrichtigungen: `createJourneyService({ …, push: { privateJwk: env.VAPID_PRIVATE_JWK, subject: 'mailto:…' } })` und
+im Service Worker der Seite `push`/`notificationclick` behandeln (Vorlage: `app/web/public/sw.js`).
 
 Oberfläche (Preact):
 

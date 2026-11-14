@@ -9,8 +9,10 @@ import {
   arrDelay,
   arrTime,
   boardingState,
+  type AlternativeOption,
   type Boarding,
   type BoardingEvent,
+  type Coverage,
   depDelay,
   depTime,
   journeyEnds,
@@ -152,10 +154,16 @@ function Status({ j, now, boarding }: { j: Journey; now: number; boarding: Board
   const i = useI();
   const p = progress(j, now, boarding);
   const ph = p.phase;
-  let kind: 'on' | 'busy' | 'off' = 'on';
+  const bs = boardingState(j, boarding, now);
+  let kind: 'on' | 'busy' | 'off' | 'warn' = 'on';
   let text = '';
   let sub = '';
-  if (ph.kind === 'before') {
+  if (bs.prompt?.kind === 'missed') {
+    const l = j.legs[bs.prompt.leg];
+    kind = 'warn';
+    text = i.t('altMissedTrain', { line: l.line ?? '' });
+    sub = l.from.stop.name;
+  } else if (ph.kind === 'before') {
     const l = j.legs[ph.legIndex];
     kind = 'off';
     text = i.t('departsAt', { time: when(i, ph.departsAt) });
@@ -204,8 +212,8 @@ function TripCard({ trip, canEdit, onChanged, onReplan }: { trip: TripView; canE
   const now = Date.now();
   const ends = journeyEnds(j);
   const ph = progress(j, now, boarding).phase;
-  const currentLeg = ph.kind === 'riding' ? ph.legIndex : -1;
   const bs = boardingState(j, boarding, now);
+  const currentLeg = ph.kind === 'riding' && bs.prompt?.kind !== 'missed' ? ph.legIndex : -1;
   const trs = transfersOf(j, { boarding });
   const start = j.legs[0]?.from.plannedDeparture;
   const items: JSX.Element[] = [];
@@ -238,7 +246,10 @@ function TripCard({ trip, canEdit, onChanged, onReplan }: { trip: TripView; canE
         </div>
       </div>
       <Status j={j} now={now} boarding={boarding} />
-      {canEdit && bs.prompt && <BoardingPrompt trip={trip} prompt={bs.prompt} onChanged={onChanged} onReplan={onReplan} />}
+      {trip.alternatives && <AlternativesBox trip={trip} canEdit={canEdit} onChanged={onChanged} />}
+      {canEdit && bs.prompt && !(bs.prompt.kind === 'missed' && trip.alternatives?.options.length) && (
+        <BoardingPrompt trip={trip} prompt={bs.prompt} onChanged={onChanged} onReplan={onReplan} />
+      )}
       <ol class="rb-legs">{items}</ol>
       {lastWalk ? <p class="rb-muted rb-small">{i.t('walk', { n: lastWalk })}</p> : null}
       {trip.stale && trip.refreshedAt && <p class="rb-muted rb-small">{i.t('stale', { time: i.time(trip.refreshedAt) })}</p>}
@@ -326,6 +337,7 @@ export function JourneyView({ api, canEdit, lang = 'de', refreshMs = 60_000 }: J
                 {i.t('sources')}
               </a>
             </div>
+            {canEdit && <PushToggle />}
             <Disclaimer />
           </>
         )}
@@ -341,6 +353,153 @@ function Disclaimer() {
     <p class="rb-disclaimer rb-muted rb-small">
       <span class="rb-beta">{i.t('beta')}</span> {i.t('disclaimer')}
     </p>
+  );
+}
+
+/** Kurzer Hinweis, warum eine Alternative mit dem Ticket nutzbar ist (oder nicht) */
+function CoverageNote({ option }: { option: AlternativeOption }) {
+  const i = useI();
+  if (!option.covered) return <span class="rb-chip rb-chip-bad">{i.t('covNot')}</span>;
+  const set = new Set(option.coverage);
+  return (
+    <>
+      {set.has('binding-lifted') && <span class="rb-chip">{i.t('covLifted')}</span>}
+      {set.has('dticket') && <span class="rb-chip">{i.t('covDTicket')}</span>}
+    </>
+  );
+}
+
+/** Alternativen, wenn die Reise so nicht mehr klappt (Anschluss weg, Ausfall, Zug verpasst) */
+function AlternativesBox({ trip, canEdit, onChanged }: { trip: TripView; canEdit: boolean; onChanged: () => void }) {
+  const { api, i } = useContext(Ctx);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(false);
+  const a = trip.alternatives!;
+  const title = i.t(a.reason === 'connection' ? 'altConnection' : a.reason === 'cancelled' ? 'altCancelled' : 'altMissedTrain', { line: a.line ?? '' });
+
+  async function take(index: number) {
+    if (!confirm(i.t('altConfirm'))) return;
+    setBusy(true);
+    setError(false);
+    try {
+      await api.chooseAlternative(trip.id, index);
+      onChanged();
+    } catch {
+      setError(true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div class="rb-alts">
+      <p class="rb-alts-title">{title}</p>
+      <p class="rb-muted rb-small">
+        {i.t('altFrom', { stop: a.origin.name, time: i.time(a.time) })}
+        {a.bindingLifted && trip.ticket === 'spar' ? ` · ${i.t('altLiftedNote')}` : ''}
+      </p>
+      {a.options.length > 0 ? (
+        <ul class="rb-results">
+          {a.options.map((o, k) => (
+            <ResultItem j={o.journey} option={o} busy={busy} onTake={canEdit ? () => take(k) : undefined} key={k} />
+          ))}
+        </ul>
+      ) : (
+        <p class="rb-small">{a.error ? i.t('altRetry') : i.t('altNone')}</p>
+      )}
+      <p class="rb-muted rb-small">{i.t('altAsOf', { time: i.time(a.computedAt) })}</p>
+      {error && <p class="rb-error rb-small">{i.t('boardFailed')}</p>}
+    </div>
+  );
+}
+
+function urlKey(b64: string): Uint8Array<ArrayBuffer> {
+  const bin = atob(b64.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((b64.length + 3) % 4));
+  return Uint8Array.from(bin, (c) => c.charCodeAt(0));
+}
+
+/** Benachrichtigungen (Web Push) für dieses Gerät ein-/ausschalten */
+function PushToggle() {
+  const { api, i } = useContext(Ctx);
+  const [key, setKey] = useState<string | null | undefined>(undefined);
+  const [state, setState] = useState<'unsupported' | 'off' | 'on' | 'denied' | 'busy'>('busy');
+  const [note, setNote] = useState('');
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const k = await api.pushKey().then((r) => r.key).catch(() => null);
+      if (!alive) return;
+      setKey(k);
+      if (!k) return;
+      if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) return setState('unsupported');
+      if (Notification.permission === 'denied') return setState('denied');
+      const reg = await navigator.serviceWorker.getRegistration();
+      const sub = await reg?.pushManager.getSubscription();
+      if (alive) setState(sub ? 'on' : 'off');
+    })().catch(() => alive && setState('unsupported'));
+    return () => {
+      alive = false;
+    };
+  }, [api]);
+
+  if (!key) return null;
+
+  async function enable() {
+    setState('busy');
+    setNote('');
+    try {
+      if ((await Notification.requestPermission()) !== 'granted') return setState('denied');
+      const reg = (await navigator.serviceWorker.getRegistration()) ?? (await navigator.serviceWorker.ready);
+      const sub = (await reg.pushManager.getSubscription()) ?? (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlKey(key!) }));
+      await api.subscribe(sub.toJSON(), i.lang);
+      setState('on');
+    } catch {
+      setState('off');
+      setNote(i.t('pushFailed'));
+    }
+  }
+
+  async function disable() {
+    setState('busy');
+    try {
+      const sub = await (await navigator.serviceWorker.getRegistration())?.pushManager.getSubscription();
+      if (sub) {
+        await api.unsubscribe(sub.endpoint);
+        await sub.unsubscribe();
+      }
+    } finally {
+      setState('off');
+    }
+  }
+
+  async function test() {
+    const r = await api.testPush(i.lang).catch(() => ({ sent: 0 }));
+    setNote(r.sent ? i.t('pushTestSent') : i.t('pushFailed'));
+  }
+
+  return (
+    <div class="rb-push rb-small">
+      {state === 'on' && (
+        <div class="rb-row rb-wrap">
+          <span>🔔 {i.t('pushOn')}</span>
+          <button type="button" class="rb-btn rb-btn-small" onClick={test}>
+            {i.t('pushTest')}
+          </button>
+          <button type="button" class="rb-btn rb-btn-small" onClick={disable}>
+            {i.t('pushDisable')}
+          </button>
+        </div>
+      )}
+      {state === 'off' && (
+        <button type="button" class="rb-btn rb-btn-small" onClick={enable}>
+          🔔 {i.t('pushEnable')}
+        </button>
+      )}
+      {state === 'denied' && <span class="rb-muted">{i.t('pushDenied')}</span>}
+      {state === 'unsupported' && <span class="rb-muted">{i.t('pushUnsupported')}</span>}
+      {note && <span class="rb-muted"> {note}</span>}
+    </div>
   );
 }
 
@@ -512,9 +671,10 @@ function duration(j: Journey) {
   return `${Math.floor(min / 60)}:${String(min % 60).padStart(2, '0')} h`;
 }
 
-function ResultItem({ j, onTake, busy }: { j: Journey; onTake: () => void; busy: boolean }) {
+function ResultItem({ j, onTake, busy, option }: { j: Journey; onTake?: () => void; busy: boolean; option?: AlternativeOption }) {
   const i = useI();
   const r = rides(j);
+  const cov = (l: Leg): Coverage | undefined => option?.coverage[j.legs.indexOf(l)];
   const first = j.legs[0];
   const last = j.legs.at(-1)!;
   const n = r.length - 1;
@@ -532,13 +692,18 @@ function ResultItem({ j, onTake, busy }: { j: Journey; onTake: () => void; busy:
       </div>
       <div class="rb-result-lines">
         {r.map((l, k) => (
-          <LineBadge l={l} key={k} />
+          <span class={cov(l) === 'not-covered' ? 'rb-uncovered' : ''} key={k}>
+            <LineBadge l={l} />
+          </span>
         ))}
         {r.some((l) => l.cancelled) && <span class="rb-late">{i.t('cancelled')}</span>}
+        {option && <CoverageNote option={option} />}
       </div>
-      <button type="button" class="rb-btn rb-btn-small rb-primary" disabled={busy} onClick={onTake}>
-        {i.t('take')}
-      </button>
+      {onTake && (
+        <button type="button" class="rb-btn rb-btn-small rb-primary" disabled={busy} onClick={onTake}>
+          {i.t('take')}
+        </button>
+      )}
     </li>
   );
 }

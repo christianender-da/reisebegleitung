@@ -1,6 +1,6 @@
 {
   "name": "reisebegleitung",
-  "version": "0.3.0-beta.1",
+  "version": "0.4.0-beta.1",
   "description": "Reisebegleitung für Bahnreisen: Verbindungen, Live-Fortschritt, Anschlussprüfung und Ticketregeln auf Basis der offenen MOTIS-API von Transitous – als Bibliothek, Widget-Baustein und eigenständige App (Cloudflare).",
   "type": "module",
   "license": "MIT",
@@ -23,7 +23,8 @@
     "app:migrate": "wrangler d1 migrations apply reisebegleitung --remote --config app/wrangler.jsonc",
     "app:migrate:local": "wrangler d1 migrations apply reisebegleitung --local --config app/wrangler.jsonc",
     "app:deploy": "npm run app:build && wrangler deploy --config app/wrangler.jsonc",
-    "app:setup-code": "node app/scripts/setup-code.mjs"
+    "app:setup-code": "node app/scripts/setup-code.mjs",
+    "vapid-keys": "node scripts/vapid-keys.mjs"
   },
   "engines": {
     "node": ">=22.18"
