@@ -1,0 +1,441 @@
+/*
+ * reisebegleitung – Stile der Oberfläche (Klassen „rb-…“).
+ * Farben: übernimmt die Variablen der einbettenden Seite (--bg, --card, --text, --muted, --line, --accent,
+ * --accent-text, --on, --busy, --danger), sonst helle Standardwerte. Eigene Werte: --rb-* auf .rb-root setzen.
+ */
+.rb-root {
+  --rb-bg: var(--bg, #f4f5f7);
+  --rb-card: var(--card, #ffffff);
+  --rb-text: var(--text, #16191d);
+  --rb-muted: var(--muted, #646b75);
+  --rb-line: var(--line, #e1e4e8);
+  --rb-accent: var(--accent, #2f6fde);
+  --rb-accent-text: var(--accent-text, #ffffff);
+  --rb-on: var(--on, #1f9d55);
+  --rb-busy: var(--busy, #d99a0f);
+  --rb-danger: var(--danger, #c92a2a);
+  color: var(--rb-text);
+}
+
+.rb-muted {
+  color: var(--rb-muted);
+}
+
+.rb-small {
+  font-size: 0.85rem;
+}
+
+.rb-error {
+  color: var(--rb-danger);
+}
+
+.rb-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.rb-wrap {
+  flex-wrap: wrap;
+}
+
+.rb-spacer {
+  flex: 1;
+}
+
+.rb-btn {
+  appearance: none;
+  border: 1px solid var(--rb-line);
+  background: var(--rb-card);
+  color: var(--rb-text);
+  border-radius: 10px;
+  padding: 9px 14px;
+  font: inherit;
+  cursor: pointer;
+  min-height: 40px;
+}
+
+.rb-btn.rb-primary {
+  background: var(--rb-accent);
+  border-color: var(--rb-accent);
+  color: var(--rb-accent-text);
+}
+
+.rb-btn.rb-danger {
+  color: var(--rb-danger);
+}
+
+.rb-btn.rb-btn-small {
+  min-height: 32px;
+  padding: 4px 10px;
+  font-size: 0.9rem;
+}
+
+.rb-btn:disabled {
+  opacity: 0.45;
+}
+
+.rb-new label {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.rb-new label.rb-check {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.rb-new input[type='search'],
+.rb-new input[type='datetime-local'],
+.rb-new select {
+  font: inherit;
+  padding: 8px 10px;
+  border: 1px solid var(--rb-line);
+  border-radius: 10px;
+  background: var(--rb-card);
+  color: var(--rb-text);
+  width: 100%;
+  min-width: 0;
+}
+
+.rb-new .rb-row select,
+.rb-new .rb-row input {
+  width: auto;
+  flex: 1 1 160px;
+}
+
+.rb-hits {
+  list-style: none;
+  margin: -4px 0 12px;
+  padding: 0;
+  border: 1px solid var(--rb-line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.rb-hits li + li {
+  border-top: 1px solid var(--rb-line);
+}
+
+.rb-hits button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  border: 0;
+  background: none;
+  color: var(--rb-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.rb-hits button:hover,
+.rb-hits button:focus-visible {
+  background: var(--rb-bg);
+}
+
+.rb-state {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+}
+
+.rb-state .rb-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--rb-muted);
+  flex: none;
+}
+
+.rb-state-on .rb-dot {
+  background: var(--rb-on);
+}
+
+.rb-state-busy .rb-dot {
+  background: var(--rb-busy);
+}
+
+.rb-state-text {
+  font-size: 1.35rem;
+  font-weight: 700;
+}
+
+.rb-state-sub {
+  flex-basis: 100%;
+  padding-left: 22px;
+}
+
+.rb-root {
+  display: grid;
+  gap: 14px;
+}
+
+.rb-trip {
+  background: var(--rb-bg);
+  border: 1px solid var(--rb-line);
+  border-radius: 12px;
+  padding: 12px 14px;
+  display: grid;
+  gap: 8px;
+}
+
+.rb-head h3 {
+  font-size: 1.08rem;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.rb-arrival {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+  font-variant-numeric: tabular-nums;
+}
+
+.rb-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--rb-line);
+  overflow: hidden;
+}
+
+.rb-bar span {
+  display: block;
+  height: 100%;
+  background: var(--rb-accent);
+  transition: width 0.6s ease;
+}
+
+.rb-legs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.rb-leg {
+  border-left: 3px solid var(--rb-line);
+  padding: 4px 0 4px 10px;
+}
+
+.rb-leg.current {
+  border-left-color: var(--rb-accent);
+}
+
+.rb-leg.cancelled .rb-name {
+  text-decoration: line-through;
+}
+
+.rb-leg-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.rb-dir {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.rb-line {
+  min-width: 2.4em;
+  padding: 1px 6px;
+  border-radius: 6px;
+  text-align: center;
+  font-weight: 700;
+  font-size: 0.85rem;
+  background: var(--rb-card);
+  border: 1px solid var(--rb-line);
+  white-space: nowrap;
+}
+
+.rb-line.mode-fv {
+  background: #ec0016;
+  border-color: #ec0016;
+  color: #fff;
+}
+
+.rb-line.mode-rail {
+  background: #4a5560;
+  border-color: #4a5560;
+  color: #fff;
+}
+
+.rb-line.mode-suburban {
+  background: #1f8a3b;
+  border-color: #1f8a3b;
+  color: #fff;
+}
+
+.rb-line.mode-subway {
+  background: #1d4fa3;
+  border-color: #1d4fa3;
+  color: #fff;
+}
+
+.rb-line.mode-tram {
+  background: #c8102e;
+  border-color: #c8102e;
+  color: #fff;
+}
+
+.rb-line.mode-bus,
+.rb-line.mode-coach {
+  background: #6b2c91;
+  border-color: #6b2c91;
+  color: #fff;
+}
+
+.rb-stop {
+  display: grid;
+  grid-template-columns: 5.6em 1fr auto;
+  gap: 2px 8px;
+  align-items: baseline;
+  padding: 2px 0;
+  font-size: 0.95rem;
+}
+
+.rb-stop.inner {
+  font-size: 0.85rem;
+  color: var(--rb-muted);
+}
+
+.rb-stop.passed {
+  opacity: 0.6;
+}
+
+.rb-stop.cancelled .rb-name {
+  text-decoration: line-through;
+}
+
+.rb-time {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.rb-name {
+  overflow-wrap: anywhere;
+}
+
+.rb-track {
+  font-size: 0.8rem;
+  color: var(--rb-muted);
+  white-space: nowrap;
+}
+
+.rb-track.changed,
+.rb-late {
+  color: var(--rb-danger);
+  font-weight: 600;
+}
+
+.rb-slight {
+  color: var(--rb-busy);
+  font-weight: 600;
+}
+
+.rb-ontime {
+  color: var(--rb-on);
+  font-weight: 600;
+}
+
+.rb-inner summary {
+  cursor: pointer;
+  padding: 2px 0 2px 5.6em;
+}
+
+.rb-transfer {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 0.85rem;
+  color: var(--rb-muted);
+  padding: 2px 0 2px 13px;
+}
+
+.rb-transfer .rb-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--rb-on);
+  flex: none;
+}
+
+.rb-transfer.state-tight .rb-dot {
+  background: var(--rb-busy);
+}
+
+.rb-transfer.state-tight strong {
+  color: var(--rb-busy);
+}
+
+.rb-transfer.state-missed .rb-dot,
+.rb-transfer.state-cancelled .rb-dot {
+  background: var(--rb-danger);
+}
+
+.rb-transfer.state-missed strong,
+.rb-transfer.state-cancelled strong {
+  color: var(--rb-danger);
+}
+
+.rb-new {
+  display: grid;
+  gap: 4px;
+}
+
+.rb-new h3 {
+  margin: 0 0 6px;
+}
+
+.rb-new select,
+.rb-new input {
+  min-height: 40px;
+}
+
+.rb-results {
+  list-style: none;
+  margin: 8px 0;
+  padding: 0;
+  border: 1px solid var(--rb-line);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.rb-result {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px 10px;
+  align-items: center;
+  padding: 10px 12px;
+}
+
+.rb-result + .rb-result {
+  border-top: 1px solid var(--rb-line);
+}
+
+.rb-result-times {
+  display: grid;
+  gap: 2px;
+  font-variant-numeric: tabular-nums;
+}
+
+.rb-result-lines {
+  grid-column: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.rb-result .rb-btn {
+  grid-column: 2;
+  grid-row: 1 / 3;
+}

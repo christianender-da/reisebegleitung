@@ -64,7 +64,7 @@ export function journeyPlannedEnd(j: Journey): string | undefined {
 
 /** Start- und Zielname (erster/letzter Halt der Reise) */
 export function journeyEnds(j: Journey): { from: string; to: string } {
-  return { from: j.legs[0]?.from.stop.name ?? '', to: j.legs.at(-1)?.to.stop.name ?? '' };
+  return { from: j.title?.from || j.legs[0]?.from.stop.name || '', to: j.title?.to || j.legs.at(-1)?.to.stop.name || '' };
 }
 
 /** Alle Halte eines Abschnitts in Reihenfolge (from, Zwischenhalte, to) */

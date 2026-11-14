@@ -1,20 +1,50 @@
 {
   "name": "reisebegleitung",
-  "version": "0.1.0",
-  "description": "Reisebegleitung für Bahnreisen: Verbindungen, Live-Fortschritt, Anschlussprüfung und Ticketregeln auf Basis der offenen MOTIS-API von Transitous.",
+  "version": "0.2.0",
+  "description": "Reisebegleitung für Bahnreisen: Verbindungen, Live-Fortschritt, Anschlussprüfung und Ticketregeln auf Basis der offenen MOTIS-API von Transitous – als Bibliothek, Widget-Baustein und eigenständige App (Cloudflare).",
   "type": "module",
   "license": "MIT",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/core/index.ts",
+    "./server": "./src/server/index.ts",
+    "./ui": "./src/ui/index.ts",
+    "./ui/styles.css": "./src/ui/styles.css"
   },
   "files": [
-    "src"
+    "src",
+    "migrations"
   ],
   "scripts": {
-    "typecheck": "tsc -p .",
-    "test": "node --test test/*.test.ts"
+    "typecheck": "tsc -p . && tsc -p tsconfig.ui.json && tsc -p app && tsc -p app/web",
+    "test": "node --test test/*.test.ts",
+    "app:dev": "npm run app:build && wrangler dev --config app/wrangler.jsonc --port 8787 --ip 127.0.0.1",
+    "app:web": "vite --config app/web/vite.config.ts",
+    "app:build": "vite build --config app/web/vite.config.ts",
+    "app:migrate": "wrangler d1 migrations apply reisebegleitung --remote --config app/wrangler.jsonc",
+    "app:migrate:local": "wrangler d1 migrations apply reisebegleitung --local --config app/wrangler.jsonc",
+    "app:deploy": "npm run app:build && wrangler deploy --config app/wrangler.jsonc",
+    "app:setup-code": "node app/scripts/setup-code.mjs"
   },
   "engines": {
     "node": ">=22.18"
+  },
+  "peerDependencies": {
+    "preact": ">=10.19"
+  },
+  "peerDependenciesMeta": {
+    "preact": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261106.1",
+    "@preact/preset-vite": "^2.10.6",
+    "@simplewebauthn/browser": "^14.0.0",
+    "@simplewebauthn/server": "^14.1.0",
+    "hono": "^4.13.18",
+    "preact": "^11.2.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8",
+    "wrangler": "^4.158.0"
   }
 }

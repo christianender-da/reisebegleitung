@@ -1,0 +1,146 @@
+export type Lang = 'de' | 'en';
+
+const de = {
+  loading: 'Lädt …',
+  cancel: 'Abbrechen',
+  confirmDelete: 'Wirklich löschen?',
+  now: 'jetzt',
+  inMin: 'in {n} min',
+  cancelled: 'fällt aus',
+  platform: 'Gl. {p}',
+  searchFailed: 'Suche gerade nicht möglich.',
+  noHits: 'Keine Treffer.',
+  none: 'Keine Reise geplant.',
+  newTrip: 'Reise anlegen',
+  from: 'Von',
+  to: 'Nach',
+  swap: 'Start und Ziel tauschen',
+  depart: 'Abfahrt',
+  arrive: 'Ankunft',
+  ticket: 'Ticket',
+  ticket_flex: 'Flexpreis',
+  ticket_spar: 'Sparpreis / Super Sparpreis',
+  ticket_bc100: 'BahnCard 100',
+  ticket_dticket: 'Nur Deutschlandticket',
+  ticket_other: 'Anderes Ticket (z. B. Verbund)',
+  hasDTicket: 'Ich habe ein Deutschlandticket',
+  dticketOnlyHint: 'Gesucht werden nur Nahverkehrsverbindungen (ohne ICE/IC/EC).',
+  withDTicket: 'mit D-Ticket',
+  search: 'Verbindungen suchen',
+  searching: 'Suche …',
+  later: 'Spätere Verbindungen',
+  noResults: 'Keine Verbindung gefunden.',
+  take: 'Übernehmen',
+  stopPlaceholder: 'Bahnhof oder Haltestelle',
+  pickStops: 'Bitte Start und Ziel aus der Trefferliste wählen.',
+  planExpired: 'Die Suche ist abgelaufen – bitte erneut suchen.',
+  unavailable: 'Fahrplandaten gerade nicht verfügbar.',
+  direct: 'direkt',
+  transfer1: '1 Umstieg',
+  transfers: '{n} Umstiege',
+  departsAt: 'Abfahrt {time}',
+  riding: 'Unterwegs: {line}',
+  nextStop: 'Nächster Halt {name}, {time}',
+  changeAt: 'Umstieg in {at}',
+  nextLeg: '{line} ab {time}',
+  arrived: 'Angekommen {time}',
+  arrival: 'Ankunft {time}',
+  onTime: 'pünktlich',
+  stop1: '1 Zwischenhalt',
+  stops: '{n} Zwischenhalte',
+  walk: 'Fußweg {n} min',
+  buffer: 'Umstieg {n} min',
+  tight: 'knapp',
+  missed: 'Anschluss nicht erreichbar',
+  transferCancelled: 'Anschluss fällt aus',
+  stale: 'Echtzeit gerade nicht abrufbar – Stand {time}',
+  deleteTrip: 'Reise löschen',
+  sources: 'Daten: Transitous',
+  train: 'Zug {n}',
+  towards: '→ {d}',
+};
+
+export type Key = keyof typeof de;
+
+const en: Record<Key, string> = {
+  loading: 'Loading …',
+  cancel: 'Cancel',
+  confirmDelete: 'Really delete?',
+  now: 'now',
+  inMin: 'in {n} min',
+  cancelled: 'cancelled',
+  platform: 'Pl. {p}',
+  searchFailed: 'Search currently unavailable.',
+  noHits: 'No matches.',
+  none: 'No journey planned.',
+  newTrip: 'Add journey',
+  from: 'From',
+  to: 'To',
+  swap: 'Swap origin and destination',
+  depart: 'Departure',
+  arrive: 'Arrival',
+  ticket: 'Ticket',
+  ticket_flex: 'Flexible fare (Flexpreis)',
+  ticket_spar: 'Saver fare (Sparpreis)',
+  ticket_bc100: 'BahnCard 100',
+  ticket_dticket: 'Deutschlandticket only',
+  ticket_other: 'Other ticket (e.g. local network)',
+  hasDTicket: 'I have a Deutschlandticket',
+  dticketOnlyHint: 'Only regional connections are searched (no ICE/IC/EC).',
+  withDTicket: 'with D-Ticket',
+  search: 'Search connections',
+  searching: 'Searching …',
+  later: 'Later connections',
+  noResults: 'No connection found.',
+  take: 'Use this',
+  stopPlaceholder: 'Station or stop',
+  pickStops: 'Please pick origin and destination from the list.',
+  planExpired: 'The search has expired – please search again.',
+  unavailable: 'Timetable data currently unavailable.',
+  direct: 'direct',
+  transfer1: '1 change',
+  transfers: '{n} changes',
+  departsAt: 'Departs {time}',
+  riding: 'En route: {line}',
+  nextStop: 'Next stop {name}, {time}',
+  changeAt: 'Change at {at}',
+  nextLeg: '{line} departs {time}',
+  arrived: 'Arrived {time}',
+  arrival: 'Arrival {time}',
+  onTime: 'on time',
+  stop1: '1 stop',
+  stops: '{n} stops',
+  walk: 'Walk {n} min',
+  buffer: 'Change {n} min',
+  tight: 'tight',
+  missed: 'Connection will be missed',
+  transferCancelled: 'Connection cancelled',
+  stale: 'Live data unavailable – as of {time}',
+  deleteTrip: 'Delete journey',
+  sources: 'Data: Transitous',
+  train: 'Train {n}',
+  towards: '→ {d}',
+};
+
+const dicts: Record<Lang, Record<Key, string>> = { de, en };
+
+export interface I18n {
+  lang: Lang;
+  t(key: Key, vars?: Record<string, string | number>): string;
+  time(iso: string | number): string;
+  day(iso: string): string;
+}
+
+export function i18n(lang: Lang): I18n {
+  const locale = lang === 'de' ? 'de-DE' : 'en-GB';
+  return {
+    lang,
+    t(key, vars) {
+      let s = dicts[lang][key] ?? key;
+      if (vars) for (const [k, v] of Object.entries(vars)) s = s.replace(`{${k}}`, String(v));
+      return s;
+    },
+    time: (iso) => new Date(iso).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin' }),
+    day: (iso) => new Date(iso).toLocaleDateString(locale, { weekday: 'short', day: '2-digit', month: '2-digit', timeZone: 'Europe/Berlin' }),
+  };
+}
