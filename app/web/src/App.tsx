@@ -9,6 +9,8 @@ document.documentElement.lang = lang;
 const TEXT = {
   de: {
     title: 'Reisebegleitung',
+    beta: 'Beta',
+    loginNote: 'Beta-Version – Angaben ohne Gewähr. Details im README des Projekts.',
     loading: 'Lädt …',
     login: 'Mit Passkey anmelden',
     loginFailed: 'Anmeldung fehlgeschlagen. Bitte erneut versuchen.',
@@ -31,6 +33,8 @@ const TEXT = {
   },
   en: {
     title: 'Journey companion',
+    beta: 'Beta',
+    loginNote: 'Beta version – no guarantee of accuracy. Details in the project README.',
     loading: 'Loading …',
     login: 'Sign in with passkey',
     loginFailed: 'Sign-in failed. Please try again.',
@@ -106,7 +110,9 @@ export function App() {
     return (
       <main class="shell">
         <div class="top">
-          <h1>{TEXT.title}</h1>
+          <h1>
+            {TEXT.title} <span class="rb-beta">{TEXT.beta}</span>
+          </h1>
         </div>
         <Login status={status} onDone={(code) => (code ? setRecovery(code) : null, check())} />
       </main>
@@ -177,6 +183,7 @@ function Login({ status, onDone }: { status: Status; onDone: (recoveryCode: stri
         </form>
       )}
       {error && <p class="rb-error">{error}</p>}
+      <p class="rb-muted rb-small">{TEXT.loginNote}</p>
     </div>
   );
 }
@@ -202,7 +209,9 @@ function Main({ status, onLoggedOut }: { status: Status; onLoggedOut: () => void
   return (
     <main class="shell">
       <div class="top">
-        <h1>{TEXT.title}</h1>
+        <h1>
+          {TEXT.title} <span class="rb-beta">{TEXT.beta}</span>
+        </h1>
         <button class="rb-btn rb-btn-small" onClick={logout}>
           {TEXT.logout}
         </button>

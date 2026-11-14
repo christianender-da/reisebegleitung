@@ -309,10 +309,21 @@ export function JourneyView({ api, canEdit, lang = 'de', refreshMs = 60_000 }: J
                 {i.t('sources')}
               </a>
             </div>
+            <Disclaimer />
           </>
         )}
       </div>
     </Ctx.Provider>
+  );
+}
+
+/** Beta-Kennzeichen + Haftungsausschluss (bleibt in jeder Ansicht sichtbar) */
+function Disclaimer() {
+  const i = useI();
+  return (
+    <p class="rb-disclaimer rb-muted rb-small">
+      <span class="rb-beta">{i.t('beta')}</span> {i.t('disclaimer')}
+    </p>
   );
 }
 
@@ -546,6 +557,7 @@ function NewTrip({ defaultDTicket, onDone }: { defaultDTicket: boolean; onDone: 
           </button>
         </>
       )}
+      <Disclaimer />
     </form>
   );
 }

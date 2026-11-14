@@ -18,7 +18,7 @@
 }
 
 .rb-muted {
-  color: var(--rb-muted);
+  color: var(--rb-muted, var(--muted, #646b75));
 }
 
 .rb-small {
@@ -26,7 +26,7 @@
 }
 
 .rb-error {
-  color: var(--rb-danger);
+  color: var(--rb-danger, var(--danger, #c92a2a));
 }
 
 .rb-row {
@@ -438,4 +438,23 @@
 .rb-result .rb-btn {
   grid-column: 2;
   grid-row: 1 / 3;
+}
+
+.rb-disclaimer {
+  margin: 4px 0 0;
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.rb-beta {
+  display: inline-block;
+  padding: 0 6px;
+  margin-right: 2px;
+  border: 1px solid var(--rb-busy, var(--busy, #d99a0f));
+  border-radius: 6px;
+  color: var(--rb-busy, var(--busy, #d99a0f));
+  font-weight: 700;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }

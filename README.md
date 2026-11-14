@@ -1,5 +1,8 @@
 # reisebegleitung
 
+> **Beta** – in Entwicklung, Funktionen und Schnittstellen können sich noch ändern. Angaben ohne Gewähr,
+> siehe [Haftungsausschluss](#haftungsausschluss).
+
 Persönliche Reisebegleitung für Bahnreisen – im Stil eines Bahn-Navigators, auf Basis offener Fahrplandaten von
 [Transitous](https://transitous.org) (MOTIS 2, in Deutschland mit Echtzeit aus DELFI).
 
@@ -123,6 +126,31 @@ npm run typecheck
 ```
 
 Die Ticketregeln sind eine Vereinfachung der Fahrgastrechte (Stand 2026) und keine Rechtsauskunft.
+
+## Haftungsausschluss
+
+Dieses Projekt ist eine **Beta-Version** und ein privates Open-Source-Projekt. Es ist **kein Angebot der Deutschen Bahn**
+oder eines anderen Verkehrsunternehmens und steht mit ihnen in keiner Verbindung.
+
+- **Keine Gewähr für die Daten:** Fahrplan- und Echtzeitdaten stammen aus offenen Quellen (Transitous und deren
+  Datenlieferanten). Sie können unvollständig, verspätet oder falsch sein; Gleiswechsel, Ausfälle, Ersatzverkehr oder
+  Umleitungen fehlen unter Umständen. Maßgeblich sind die Auskünfte der Verkehrsunternehmen (Aushänge, Ansagen,
+  offizielle Apps).
+- **Keine Rechtsberatung:** Die Ticketregeln (z. B. Aufhebung der Zugbindung, Nutzung mit Deutschlandticket) sind
+  vereinfacht und können von den Beförderungsbedingungen und Fahrgastrechten im Einzelfall abweichen.
+- **Anschlüsse und Alternativen** sind Vorschläge. Ob ein Anschluss erreicht wird oder eine Alternative mit dem Ticket
+  genutzt werden darf, liegt in der eigenen Verantwortung.
+- **Haftung:** Die Software wird ohne Gewährleistung bereitgestellt (siehe [LICENSE](LICENSE)). Für Schäden aus der Nutzung,
+  z. B. verpasste Verbindungen, zusätzliche Fahrt- oder Übernachtungskosten, wird – soweit gesetzlich zulässig – keine
+  Haftung übernommen. Die Haftung für Vorsatz und grobe Fahrlässigkeit sowie für Schäden aus der Verletzung des Lebens,
+  des Körpers oder der Gesundheit bleibt unberührt.
+- **Eigene Installationen** betreibt jede und jeder in eigener Verantwortung, einschließlich Datenschutz gegenüber Personen,
+  mit denen Reisen geteilt werden, und der Einhaltung der Nutzungsregeln von Transitous.
+
+*Disclaimer (English): Beta software, provided "as is" without warranty. Not affiliated with Deutsche Bahn or any transport
+operator. Timetable and real-time data come from open sources and may be incomplete or wrong; ticket rules are simplified
+and not legal advice. Always check official operator information. Self-hosted instances are operated at your own
+responsibility.*
 
 ## Lizenz
 

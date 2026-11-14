@@ -56,6 +56,9 @@ const de = {
   stale: 'Echtzeit gerade nicht abrufbar – Stand {time}',
   deleteTrip: 'Reise löschen',
   sources: 'Daten: Transitous',
+  beta: 'Beta',
+  disclaimer:
+    'Angaben ohne Gewähr. Fahrplan- und Echtzeitdaten stammen aus offenen Quellen und können fehlen, verspätet oder falsch sein; Ticketregeln sind vereinfacht. Maßgeblich sind die Auskünfte der Verkehrsunternehmen. Kein Angebot der Deutschen Bahn oder anderer Verkehrsunternehmen.',
   train: 'Zug {n}',
   towards: '→ {d}',
 };
@@ -118,6 +121,9 @@ const en: Record<Key, string> = {
   stale: 'Live data unavailable – as of {time}',
   deleteTrip: 'Delete journey',
   sources: 'Data: Transitous',
+  beta: 'Beta',
+  disclaimer:
+    'No guarantee of accuracy. Timetable and real-time data come from open sources and may be missing, delayed or wrong; ticket rules are simplified. Information from the transport operators prevails. Not a service of Deutsche Bahn or any other transport operator.',
   train: 'Train {n}',
   towards: '→ {d}',
 };
