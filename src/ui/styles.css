@@ -458,3 +458,33 @@
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
+
+.rb-prompt {
+  border: 1px solid var(--rb-accent);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: color-mix(in srgb, var(--rb-accent) 8%, var(--rb-card));
+}
+
+.rb-prompt-missed {
+  border-color: var(--rb-danger);
+  background: color-mix(in srgb, var(--rb-danger) 8%, var(--rb-card));
+}
+
+.rb-prompt p {
+  margin: 0 0 8px;
+  font-weight: 600;
+}
+
+.rb-onboard {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--rb-accent);
+  color: var(--rb-accent-text);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.rb-transfer.state-done .rb-dot {
+  background: var(--rb-muted);
+}

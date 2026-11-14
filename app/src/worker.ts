@@ -4,6 +4,7 @@
  * /api/auth/*      Passkey-Anmeldung (Rate-Limit pro IP)
  * /api/journey/*   Reisebegleitung (nur angemeldet) – siehe src/server/handler.ts
  * sonst            Oberfläche (Assets, SPA)
+ * Cron (jede Minute): laufende Reisen mit Echtzeit auffrischen
  */
 import { Hono, type Context } from 'hono';
 import { createJourneyService, d1Store, handleJourneyRequest, type JourneyService } from '../../src/server/index.ts';
@@ -133,4 +134,16 @@ app.all('/api/*', (c) => c.json({ error: 'not-found' }, 404));
 
 app.get('*', (c) => c.env.ASSETS.fetch(c.req.raw));
 
-export default app;
+// ---------- Hintergrund: laufende Reisen jede Minute auffrischen (Cron in wrangler.jsonc) ----------
+
+async function scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext) {
+  const s = journeyService(env);
+  if (!s) return;
+  ctx.waitUntil(
+    s.refreshActive().catch((e) => {
+      console.warn('refreshActive', String(e));
+    }),
+  );
+}
+
+export default { fetch: app.fetch, scheduled } satisfies ExportedHandler<Env>;

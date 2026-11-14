@@ -8,6 +8,9 @@ import { useCallback, useContext, useEffect, useMemo, useState } from 'preact/ho
 import {
   arrDelay,
   arrTime,
+  boardingState,
+  type Boarding,
+  type BoardingEvent,
   depDelay,
   depTime,
   journeyEnds,
@@ -97,6 +100,13 @@ function StopRow({ s, kind, cls = '' }: { s: Stopover; kind: 'dep' | 'arr'; cls?
 function TransferRow({ tr, walk }: { tr: Transfer; walk?: number }) {
   const i = useI();
   const text = tr.state === 'cancelled' ? i.t('transferCancelled') : tr.state === 'missed' ? i.t('missed') : tr.state === 'tight' ? i.t('tight') : '';
+  if (tr.state === 'done')
+    return (
+      <li class="rb-transfer state-done">
+        <span class="rb-dot" aria-hidden="true" />
+        <span>{i.t('transferDone')}</span>
+      </li>
+    );
   return (
     <li class={`rb-transfer state-${tr.state}`}>
       <span class="rb-dot" aria-hidden="true" />
@@ -109,7 +119,7 @@ function TransferRow({ tr, walk }: { tr: Transfer; walk?: number }) {
   );
 }
 
-function LegItem({ l, current, now }: { l: Leg; current: boolean; now: number }) {
+function LegItem({ l, current, now, onBoard, checkin }: { l: Leg; current: boolean; now: number; onBoard: boolean; checkin?: BoardingEvent }) {
   const i = useI();
   const passed = (s: Stopover) => {
     const x = Date.parse(arrTime(s) ?? depTime(s) ?? '');
@@ -122,6 +132,7 @@ function LegItem({ l, current, now }: { l: Leg; current: boolean; now: number })
         <span class="rb-dir">{l.headsign ? i.t('towards', { d: l.headsign }) : ''}</span>
         {l.number && !(l.line ?? '').includes(l.number) && <span class="rb-muted rb-small">{i.t('train', { n: l.number })}</span>}
         {l.cancelled && <span class="rb-late">{i.t('cancelled')}</span>}
+        {onBoard ? <span class="rb-onboard">{i.t('onBoardBadge')}</span> : checkin ? <span class="rb-muted rb-small">✓ {i.t('checkedIn', { time: i.time(checkin.at) })}</span> : null}
       </div>
       <StopRow s={l.from} kind="dep" cls={passed(l.from) ? 'passed' : ''} />
       {l.stopovers.length > 0 && (
@@ -137,9 +148,9 @@ function LegItem({ l, current, now }: { l: Leg; current: boolean; now: number })
   );
 }
 
-function Status({ j, now }: { j: Journey; now: number }) {
+function Status({ j, now, boarding }: { j: Journey; now: number; boarding: Boarding }) {
   const i = useI();
-  const p = progress(j, now);
+  const p = progress(j, now, boarding);
   const ph = p.phase;
   let kind: 'on' | 'busy' | 'off' = 'on';
   let text = '';
@@ -152,7 +163,7 @@ function Status({ j, now }: { j: Journey; now: number }) {
     sub = [l.line, l.from.stop.name, tr ? i.t('platform', { p: tr }) : ''].filter(Boolean).join(' · ');
   } else if (ph.kind === 'riding') {
     kind = 'busy';
-    text = i.t('riding', { line: j.legs[ph.legIndex].line ?? '' });
+    text = i.t(ph.onBoard ? 'onBoard' : 'riding', { line: j.legs[ph.legIndex].line ?? '' });
     const at = arrTime(ph.next) ?? depTime(ph.next);
     sub = i.t('nextStop', { name: ph.next.stop.name, time: at ? i.time(at) : '–' });
   } else if (ph.kind === 'transfer') {
@@ -186,14 +197,16 @@ function Status({ j, now }: { j: Journey; now: number }) {
   );
 }
 
-function TripCard({ trip, canEdit, onChanged }: { trip: TripView; canEdit: boolean; onChanged: () => void }) {
+function TripCard({ trip, canEdit, onChanged, onReplan }: { trip: TripView; canEdit: boolean; onChanged: () => void; onReplan: (from: StopHit, to: StopHit) => void }) {
   const { api, i } = useContext(Ctx);
   const j = trip.journey;
+  const boarding = trip.boarding ?? { checkins: [], missed: [] };
   const now = Date.now();
   const ends = journeyEnds(j);
-  const ph = progress(j, now).phase;
+  const ph = progress(j, now, boarding).phase;
   const currentLeg = ph.kind === 'riding' ? ph.legIndex : -1;
-  const trs = transfersOf(j);
+  const bs = boardingState(j, boarding, now);
+  const trs = transfersOf(j, { boarding });
   const start = j.legs[0]?.from.plannedDeparture;
   const items: JSX.Element[] = [];
   j.legs.forEach((l, k) => {
@@ -203,7 +216,7 @@ function TripCard({ trip, canEdit, onChanged }: { trip: TripView; canEdit: boole
       const walk = j.legs.slice(tr.fromLeg + 1, k).reduce((s, w) => s + (w.walkMin ?? 0), 0);
       items.push(<TransferRow tr={tr} walk={walk} key={`t${k}`} />);
     }
-    items.push(<LegItem l={l} current={k === currentLeg} now={now} key={`l${k}`} />);
+    items.push(<LegItem l={l} current={k === currentLeg} now={now} onBoard={bs.onBoard === k} checkin={boarding.checkins.find((e) => e.leg === k)} key={`l${k}`} />);
   });
   const last = j.legs.at(-1);
   const lastWalk = last?.kind === 'walk' ? last.walkMin : undefined;
@@ -224,7 +237,8 @@ function TripCard({ trip, canEdit, onChanged }: { trip: TripView; canEdit: boole
           {[start ? i.day(start) : '', i.t(TICKET_KEYS[trip.ticket]), trip.dticket && trip.ticket !== 'dticket' ? i.t('withDTicket') : ''].filter(Boolean).join(' · ')}
         </div>
       </div>
-      <Status j={j} now={now} />
+      <Status j={j} now={now} boarding={boarding} />
+      {canEdit && bs.prompt && <BoardingPrompt trip={trip} prompt={bs.prompt} onChanged={onChanged} onReplan={onReplan} />}
       <ol class="rb-legs">{items}</ol>
       {lastWalk ? <p class="rb-muted rb-small">{i.t('walk', { n: lastWalk })}</p> : null}
       {trip.stale && trip.refreshedAt && <p class="rb-muted rb-small">{i.t('stale', { time: i.time(trip.refreshedAt) })}</p>}
@@ -255,7 +269,8 @@ export function JourneyView({ api, canEdit, lang = 'de', refreshMs = 60_000 }: J
   const ctx = useMemo(() => ({ api, i }), [api, i]);
   const [data, setData] = useState<{ trips: TripView[]; dticket?: boolean } | null>(null);
   const [failed, setFailed] = useState(false);
-  const [creating, setCreating] = useState(false);
+  /** false = Liste; sonst „Reise anlegen“, ggf. mit Start/Ziel vorbelegt */
+  const [creating, setCreating] = useState<false | { from?: StopHit; to?: StopHit }>(false);
   useTick(30_000);
 
   const load = useCallback(() => {
@@ -284,6 +299,8 @@ export function JourneyView({ api, canEdit, lang = 'de', refreshMs = 60_000 }: J
       <div class="rb-root">
         {creating ? (
           <NewTrip
+            initialFrom={creating.from}
+            initialTo={creating.to}
             defaultDTicket={data?.dticket ?? false}
             onDone={(saved) => {
               setCreating(false);
@@ -295,12 +312,12 @@ export function JourneyView({ api, canEdit, lang = 'de', refreshMs = 60_000 }: J
             {!data && <p class="rb-muted">{failed ? i.t('unavailable') : i.t('loading')}</p>}
             {data && data.trips.length === 0 && <p class="rb-muted">{i.t('none')}</p>}
             {data?.trips.map((tr) => (
-              <TripCard trip={tr} canEdit={canEdit} onChanged={load} key={tr.id} />
+              <TripCard trip={tr} canEdit={canEdit} onChanged={load} onReplan={(from, to) => setCreating({ from, to })} key={tr.id} />
             ))}
             {data && failed && <p class="rb-muted rb-small">{i.t('unavailable')}</p>}
             <div class="rb-row">
               {canEdit && (
-                <button type="button" class="rb-btn rb-btn-small" onClick={() => setCreating(true)}>
+                <button type="button" class="rb-btn rb-btn-small" onClick={() => setCreating({})}>
                   + {i.t('newTrip')}
                 </button>
               )}
@@ -324,6 +341,91 @@ function Disclaimer() {
     <p class="rb-disclaimer rb-muted rb-small">
       <span class="rb-beta">{i.t('beta')}</span> {i.t('disclaimer')}
     </p>
+  );
+}
+
+/** Check-in-Nachfrage für den nächsten Zug bzw. „Zug verpasst?“ (nur wer bearbeiten darf) */
+function BoardingPrompt({
+  trip,
+  prompt,
+  onChanged,
+  onReplan,
+}: {
+  trip: TripView;
+  prompt: NonNullable<ReturnType<typeof boardingState>['prompt']>;
+  onChanged: () => void;
+  onReplan: (from: StopHit, to: StopHit) => void;
+}) {
+  const { api, i } = useContext(Ctx);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(false);
+  const j = trip.journey;
+  const l = j.legs[prompt.leg];
+  const line = l.line ?? '?';
+  const dep = depTime(l.from);
+  const track = l.from.track ?? l.from.plannedTrack;
+
+  async function act(action: 'checkin' | 'missed' | 'undo') {
+    setBusy(true);
+    setError(false);
+    try {
+      await api.board(trip.id, prompt.leg, action);
+      onChanged();
+    } catch {
+      setError(true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function replan() {
+    const last = j.legs.at(-1)!;
+    onReplan(
+      { id: l.from.stop.id, name: l.from.stop.name, modes: [] },
+      { id: last.to.stop.id, name: journeyEnds(j).to, modes: [] },
+    );
+  }
+
+  let text: string;
+  let buttons: JSX.Element;
+  if (prompt.kind === 'checkin') {
+    text = i.t('checkinQuestion', { line, time: dep ? when(i, dep) : '–', track: track ? `, ${i.t('platform', { p: track })}` : '' });
+    buttons = (
+      <button type="button" class="rb-btn rb-primary" disabled={busy} onClick={() => act('checkin')}>
+        {i.t('checkinBtn')}
+      </button>
+    );
+  } else if (prompt.kind === 'missed?') {
+    text = i.t('missedQuestion', { line });
+    buttons = (
+      <>
+        <button type="button" class="rb-btn rb-primary" disabled={busy} onClick={() => act('checkin')}>
+          {i.t('yesBoarded')}
+        </button>
+        <button type="button" class="rb-btn" disabled={busy} onClick={() => act('missed')}>
+          {i.t('noMissed')}
+        </button>
+      </>
+    );
+  } else {
+    text = i.t('missedText', { line });
+    buttons = (
+      <>
+        <button type="button" class="rb-btn rb-primary" disabled={busy} onClick={replan}>
+          {i.t('replan', { stop: l.from.stop.name })}
+        </button>
+        <button type="button" class="rb-btn rb-btn-small" disabled={busy} onClick={() => act('undo')}>
+          {i.t('undo')}
+        </button>
+      </>
+    );
+  }
+  return (
+    <div class={`rb-prompt rb-prompt-${prompt.kind === 'checkin' ? 'checkin' : 'missed'}`}>
+      <p>{text}</p>
+      <div class="rb-row rb-wrap">{buttons}</div>
+      {error && <p class="rb-error rb-small">{i.t('boardFailed')}</p>}
+    </div>
   );
 }
 
@@ -441,10 +543,20 @@ function ResultItem({ j, onTake, busy }: { j: Journey; onTake: () => void; busy:
   );
 }
 
-function NewTrip({ defaultDTicket, onDone }: { defaultDTicket: boolean; onDone: (saved: boolean) => void }) {
+function NewTrip({
+  defaultDTicket,
+  onDone,
+  initialFrom,
+  initialTo,
+}: {
+  defaultDTicket: boolean;
+  onDone: (saved: boolean) => void;
+  initialFrom?: StopHit;
+  initialTo?: StopHit;
+}) {
   const { api, i } = useContext(Ctx);
-  const [from, setFrom] = useState<StopHit | null>(null);
-  const [to, setTo] = useState<StopHit | null>(null);
+  const [from, setFrom] = useState<StopHit | null>(initialFrom ?? null);
+  const [to, setTo] = useState<StopHit | null>(initialTo ?? null);
   const [time, setTime] = useState(localInput(new Date()));
   const [arriveBy, setArriveBy] = useState(false);
   const [ticket, setTicket] = useState<Ticket>('flex');

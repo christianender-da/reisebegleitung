@@ -1,5 +1,6 @@
 export * from './types.ts';
 export * from './journey.ts';
+export * from './boarding.ts';
 export * from './progress.ts';
 export * from './refresh.ts';
 export * from './tickets.ts';

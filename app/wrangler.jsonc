@@ -28,5 +28,7 @@
   ],
   // Anmelde-Versuche pro IP begrenzen (namespace_id: beliebige Zahl, im Konto eindeutig)
   "ratelimits": [{ "name": "AUTH_LIMIT", "namespace_id": "7301", "simple": { "limit": 20, "period": 60 } }],
+  // Laufende Reisen im Hintergrund auffrischen (auch wenn niemand die Seite offen hat)
+  "triggers": { "crons": ["* * * * *"] },
   "observability": { "enabled": true }
 }

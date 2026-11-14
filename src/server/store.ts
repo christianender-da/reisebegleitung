@@ -2,7 +2,7 @@
  * Speicher für Reisen. Mitgeliefert: D1 (Cloudflare) – siehe d1.ts und migrations/0001_journey.sql.
  * „scope“ trennt unabhängige Reiselisten (z. B. je Dashboard-Widget; eigenständige App: „default“).
  */
-import type { Journey, Ticket } from '../core/index.ts';
+import type { Boarding, Journey, Ticket } from '../core/index.ts';
 
 export interface TripRecord {
   id: string;
@@ -21,12 +21,18 @@ export interface TripRecord {
   arriveAt: string;
   refreshedAt: string | null;
   createdAt: string;
+  /** Check-ins und als verpasst markierte Abschnitte */
+  boarding: Boarding;
 }
 
 export interface TripStore {
   /** Reisen eines Bereichs, die nach `arrivingAfter` ankommen, nach Abfahrt sortiert */
   list(scope: string, arrivingAfter: string): Promise<TripRecord[]>;
+  get(scope: string, id: string): Promise<TripRecord | null>;
+  /** Reisen aller Bereiche, die vor `departBefore` abfahren und nach `arriveAfter` ankommen (für die Hintergrund-Aktualisierung) */
+  listActive(departBefore: string, arriveAfter: string): Promise<TripRecord[]>;
   insert(trip: TripRecord): Promise<void>;
+  setBoarding(id: string, boarding: Boarding): Promise<void>;
   updateLive(id: string, journey: Journey, arriveAt: string, refreshedAt: string): Promise<void>;
   delete(scope: string, id: string): Promise<void>;
   /** Reisen löschen, die vor `arrivedBefore` angekommen sind */

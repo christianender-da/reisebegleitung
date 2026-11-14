@@ -5,7 +5,9 @@
  * Live-Abfrage nur von 3 h vor Abfahrt bis 30 min nach Ankunft.
  */
 import {
+  applyBoarding,
   createClient,
+  emptyBoarding,
   journeyEnd,
   journeyPlannedStart,
   progress,
@@ -14,6 +16,7 @@ import {
   TICKETS,
   transfers,
   TransitousError,
+  type Boarding,
   type Journey,
   type Leg,
   type Progress,
@@ -22,7 +25,7 @@ import {
   type Transfer,
   type TransitousClient,
 } from '../core/index.ts';
-import type { CacheLike, TripStore } from './store.ts';
+import type { CacheLike, TripRecord, TripStore } from './store.ts';
 
 export interface JourneyServiceOptions {
   store: TripStore;
@@ -41,11 +44,14 @@ export interface TripView {
   ticket: Ticket;
   dticket: boolean;
   journey: Journey;
+  boarding: Boarding;
   progress: Progress;
   transfers: Transfer[];
   refreshedAt: string | null;
   stale?: boolean;
 }
+
+export type BoardingAction = 'checkin' | 'missed' | 'undo';
 
 export class JourneyError extends Error {
   code: string;
@@ -66,6 +72,18 @@ const VISIBLE_AFTER_ARRIVAL_MS = 2 * 3600_000;
 const DELETE_AFTER_ARRIVAL_MS = 2 * 86400_000;
 const LIVE_BEFORE_MS = 3 * 3600_000;
 const LIVE_AFTER_MS = 30 * 60_000;
+/** mehr als 30 min vor Abfahrt nur alle 5 min auffrischen */
+const EARLY_MS = 30 * 60_000;
+const EARLY_REFRESH_MS = 5 * 60_000;
+
+/** Ist ein Live-Abgleich fällig? (3 h vor Abfahrt bis 30 min nach Ankunft; vor Abfahrt seltener) */
+export function refreshDue(r: Pick<TripRecord, 'departAt' | 'arriveAt' | 'refreshedAt'>, t: number): boolean {
+  const dep = Date.parse(r.departAt);
+  if (t < dep - LIVE_BEFORE_MS || t > Date.parse(r.arriveAt) + LIVE_AFTER_MS) return false;
+  if (!r.refreshedAt) return true;
+  const age = t - Date.parse(r.refreshedAt);
+  return age >= (t < dep - EARLY_MS ? EARLY_REFRESH_MS : TRIP_FRESH_S * 1000);
+}
 const STOP_ID = /^[\w.:,@+\-]{1,200}$/;
 
 const nowIso = () => new Date().toISOString();
@@ -118,6 +136,28 @@ export function createJourneyService(opts: JourneyServiceOptions) {
       if (cached) return cached.legs;
       throw e;
     }
+  }
+
+  async function refresh(r: TripRecord): Promise<{ record: TripRecord; stale: boolean }> {
+    const res = await refreshJourney(r.journey, cachedTrip);
+    const refreshedAt = nowIso();
+    const arriveAt = journeyEnd(res.journey) ?? r.arriveAt;
+    await store.updateLive(r.id, res.journey, arriveAt, refreshedAt);
+    return { record: { ...r, journey: res.journey, arriveAt, refreshedAt }, stale: res.failed.length > 0 };
+  }
+
+  function view({ record: r, stale }: { record: TripRecord; stale?: boolean }, t: number): TripView {
+    return {
+      id: r.id,
+      ticket: r.ticket,
+      dticket: r.dticket,
+      journey: r.journey,
+      boarding: r.boarding,
+      progress: progress(r.journey, t, r.boarding),
+      transfers: transfers(r.journey, { boarding: r.boarding }),
+      refreshedAt: r.refreshedAt,
+      stale: stale || undefined,
+    };
   }
 
   return {
@@ -182,6 +222,7 @@ export function createJourneyService(opts: JourneyServiceOptions) {
         arriveAt: journeyEnd(j) ?? t,
         refreshedAt: t,
         createdAt: t,
+        boarding: emptyBoarding(),
       });
       await store.setPref(scope, 'dticket', dticket ? '1' : '0');
       return id;
@@ -200,31 +241,27 @@ export function createJourneyService(opts: JourneyServiceOptions) {
       const t = Date.now();
       await store.purge(new Date(t - DELETE_AFTER_ARRIVAL_MS).toISOString());
       const rows = await store.list(scope, new Date(t - VISIBLE_AFTER_ARRIVAL_MS).toISOString());
-      return Promise.all(
-        rows.map(async (r) => {
-          let journey = r.journey;
-          let refreshedAt = r.refreshedAt;
-          let stale = false;
-          const live = t >= Date.parse(r.departAt) - LIVE_BEFORE_MS && t <= Date.parse(r.arriveAt) + LIVE_AFTER_MS;
-          if (live && (!refreshedAt || t - Date.parse(refreshedAt) >= TRIP_FRESH_S * 1000)) {
-            const res = await refreshJourney(journey, cachedTrip);
-            journey = res.journey;
-            stale = res.failed.length > 0;
-            refreshedAt = nowIso();
-            await store.updateLive(r.id, journey, journeyEnd(journey) ?? r.arriveAt, refreshedAt);
-          }
-          return {
-            id: r.id,
-            ticket: r.ticket,
-            dticket: r.dticket,
-            journey,
-            progress: progress(journey, t),
-            transfers: transfers(journey),
-            refreshedAt,
-            stale: stale || undefined,
-          };
-        }),
-      );
+      return Promise.all(rows.map(async (r) => view(refreshDue(r, t) ? await refresh(r) : { record: r }, t)));
+    },
+
+    /** Check-in, „verpasst“ oder Zurücknehmen für einen Fahrt-Abschnitt */
+    async board(scope: string, id: string, leg: unknown, action: unknown): Promise<TripView> {
+      if (action !== 'checkin' && action !== 'missed' && action !== 'undo') throw new JourneyError('bad-request');
+      const r = await store.get(scope, id);
+      if (!r) throw new JourneyError('not-found');
+      if (typeof leg !== 'number' || r.journey.legs[leg]?.kind !== 'ride') throw new JourneyError('bad-request');
+      const boarding = applyBoarding(r.journey, r.boarding, leg, action);
+      await store.setBoarding(r.id, boarding);
+      return view({ record: { ...r, boarding } }, Date.now());
+    },
+
+    /** Hintergrund (z. B. Cron jede Minute): alle laufenden Reisen auffrischen, wenn fällig */
+    async refreshActive(): Promise<{ checked: number; refreshed: number }> {
+      const t = Date.now();
+      const rows = await store.listActive(new Date(t + LIVE_BEFORE_MS).toISOString(), new Date(t - LIVE_AFTER_MS).toISOString());
+      const due = rows.filter((r) => refreshDue(r, t));
+      await Promise.all(due.map((r) => refresh(r)));
+      return { checked: rows.length, refreshed: due.length };
     },
   };
 }

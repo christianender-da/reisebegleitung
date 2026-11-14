@@ -27,6 +27,7 @@ export interface JourneyApi {
   trips(): Promise<{ trips: TripView[]; dticket?: boolean }>;
   createTrip(body: { planId: string; index: number; ticket: Ticket; dticket: boolean }): Promise<{ id: string }>;
   deleteTrip(id: string): Promise<void>;
+  board(id: string, leg: number, action: 'checkin' | 'missed' | 'undo'): Promise<{ trip: TripView }>;
   stops(q: string): Promise<{ hits: StopHit[]; error?: string }>;
   plan(p: PlanParams): Promise<{ planId: string; journeys: Journey[] }>;
 }
@@ -63,6 +64,7 @@ export function createJourneyApi(base: string, opts: ApiOptions = {}): JourneyAp
     deleteTrip: async (id) => {
       await call(`/trips/${encodeURIComponent(id)}`, { method: 'DELETE' });
     },
+    board: (id, leg, action) => call(`/trips/${encodeURIComponent(id)}/boarding`, { body: { leg, action } }),
     stops: (q) => call(`/stops?q=${encodeURIComponent(q)}`),
     plan: (p) =>
       call(

@@ -5,6 +5,7 @@
  *   GET    /trips          Reisen mit Live-Stand (+ dticket-Vorgabe, wenn canEdit)
  *   POST   /trips          { planId, index, ticket, dticket }          (canEdit)
  *   DELETE /trips/<id>                                                   (canEdit)
+ *   POST   /trips/<id>/boarding  { leg, action: checkin|missed|undo }    (canEdit)
  *   GET    /stops?q=                                                     (canEdit)
  *   GET    /plan?from&to&time&arriveBy=1&ticket&dticket=1                (canEdit)
  */
@@ -39,14 +40,19 @@ export async function handleJourneyRequest(service: JourneyService, request: Req
       return json({ trips, dticket: ctx.canEdit ? await service.dticketDefault(ctx.scope) : undefined });
     }
     if (!ctx.canEdit) return json({ error: 'forbidden' }, 403);
-    if (parts[0] === 'trips' && parts.length === 1 && method === 'POST') {
-      let body: Record<string, unknown> = {};
+    let body: Record<string, unknown> = {};
+    if (method === 'POST') {
       try {
         body = (await request.json()) as Record<string, unknown>;
       } catch {
         /* leer */
       }
+    }
+    if (parts[0] === 'trips' && parts.length === 1 && method === 'POST') {
       return json({ id: await service.createTrip(ctx.scope, ctx.owner, body) }, 201);
+    }
+    if (parts[0] === 'trips' && parts.length === 3 && parts[2] === 'boarding' && method === 'POST') {
+      return json({ trip: await service.board(ctx.scope, decodeURIComponent(parts[1]), body.leg, body.action) });
     }
     if (parts[0] === 'trips' && parts.length === 2 && method === 'DELETE') {
       await service.deleteTrip(ctx.scope, decodeURIComponent(parts[1]));

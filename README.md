@@ -12,10 +12,12 @@ as building blocks for your own dashboard, or as a self-hosted Cloudflare app wi
 - Verbindungen suchen (Abfahrt/Ankunft) mit Ticketregeln: Flexpreis, Sparpreis, BahnCard 100, Deutschlandticket
 - Live-Fortschritt: vor Abfahrt · unterwegs mit nächstem Halt · Umstieg · angekommen
 - Abschnitte mit allen Zwischenhalten, Gleisen, Gleiswechseln und Verspätungen
-- Umstiegsampel: ok · knapp · nicht erreichbar · fällt aus
+- Umstiegsampel: ok · knapp · nicht erreichbar · fällt aus · geschafft
+- Check-in je Zug („Eingestiegen“): Status „An Bord“, Nachfrage „Zug verpasst?“, neue Verbindung ab dem Halt
+- Aktualisierung im Hintergrund (Cron jede Minute), auch wenn niemand die Seite offen hat
 
-Geplant: Check-in je Zug, Alternativen bei verpassten Anschlüssen (Web Push), Teilen-Link für Familie und
-Freunde, der 2 h nach Ankunft abläuft.
+Geplant: Alternativen bei verpassten Anschlüssen (Web Push), Teilen-Link für Familie und Freunde, der 2 h nach
+Ankunft abläuft.
 
 ## Drei Arten der Nutzung
 
@@ -57,6 +59,9 @@ Zum Home-Bildschirm“ als App installieren.
 
 Updates: `git pull && npm ci && npm run app:migrate && npm run app:deploy`.
 
+Die App frischt laufende Reisen per Cron jede Minute auf (`triggers` in `app/wrangler.jsonc`; im kostenlosen Plan
+sind einige Cron Trigger pro Konto enthalten).
+
 ### Lokal entwickeln
 
 ```bash
@@ -69,7 +74,7 @@ Passkeys funktionieren lokal nur über `http://localhost` (nicht über eine IP-A
 
 ## Bausteine in eine eigene App einbauen
 
-Server (z. B. Cloudflare Worker, D1-Schema aus `migrations/0001_journey.sql` übernehmen):
+Server (z. B. Cloudflare Worker, D1-Schema aus `migrations/` übernehmen):
 
 ```ts
 import { createJourneyService, d1Store, handleJourneyRequest } from 'reisebegleitung/server';
@@ -77,6 +82,9 @@ import { createJourneyService, d1Store, handleJourneyRequest } from 'reisebeglei
 const service = createJourneyService({ store: d1Store(env.DB), userAgent: 'meine-app/1.0 (+mail@example.org)' });
 // Anmeldung prüft deine App; scope trennt Reiselisten (z. B. je Widget)
 return handleJourneyRequest(service, request, '/trips', { scope: 'default', owner: 'me', canEdit: true });
+
+// Hintergrund (Cron jede Minute): laufende Reisen auffrischen
+export default { fetch, scheduled: (_e, env, ctx) => ctx.waitUntil(service.refreshActive()) };
 ```
 
 Oberfläche (Preact):
