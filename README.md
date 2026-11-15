@@ -25,6 +25,11 @@ as building blocks for your own dashboard, or as a self-hosted Cloudflare app wi
 - **Teilen-Links** für Familie und Freunde: Reise live verfolgen ohne Anmeldung (inkl. „An Bord“, ohne Ticketangaben),
   gültig bis 2 h nach der tatsächlichen Ankunft, jederzeit widerrufbar; dazu eine einfache Ansicht ohne JavaScript
   (alte Browser, Kindle). Gespeichert wird nur ein Hash des Links.
+- **Foto** der reisenden Person an den Reisen und auf Teilen-Links: wird im Browser quadratisch auf 256 px verkleinert und
+  neu gespeichert (Standort- und Kameradaten fallen weg), liegt in D1 (`journey_prefs`), jederzeit entfernbar
+- **Animierte Icons** an den Reiseschritten (eigene Zeichnungen, ohne Marken): Zug, Tram, Bus und Fähre fahren im aktuellen
+  Abschnitt; beim Umstieg läuft eine Person mit Rollkoffer – gemütlich ab 10 min Puffer, zügig bei 4–10 min, rennend darunter;
+  ist der Anschluss nicht zu schaffen, dreht sich ein Zugkopf auf den Kopf und weint. Bei „Bewegung reduzieren“ stehen alle still.
 
 ## Drei Arten der Nutzung
 
@@ -131,6 +136,7 @@ im Service Worker der Seite `push`/`notificationclick` behandeln (Vorlage: `app/
 Teilen-Links: `handleSharedRequest(service, token)` (JSON) und `renderSharedLite(await service.shared(token), 'de')` (HTML ohne
 JavaScript, mit `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'` ausliefern) unter einem öffentlichen Pfad
 einhängen, z. B. `/r/<token>/data` und `/r/<token>/lite`; die Seite `/r/<token>` rendert `<SharedView dataUrl=… />`.
+Das Foto zum Link liefert `handleSharedAvatar(service, token)`, z. B. unter `/r/<token>/avatar` (Standardadresse von `SharedView`).
 Ungültige Tokens per Rate-Limit bremsen.
 
 Oberfläche (Preact):

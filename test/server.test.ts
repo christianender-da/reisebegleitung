@@ -6,7 +6,7 @@ import type { TransitousClient } from '../src/core/transitous.ts';
 import { createJourneyService } from '../src/server/service.ts';
 import { handleJourneyRequest } from '../src/server/handler.ts';
 import type { PushRecord, ShareRecord, TripRecord, TripStore } from '../src/server/store.ts';
-import { handleSharedRequest } from '../src/server/handler.ts';
+import { handleSharedAvatar, handleSharedRequest } from '../src/server/handler.ts';
 import { renderSharedLite } from '../src/server/lite.ts';
 import { emptyBoarding } from '../src/core/boarding.ts';
 import type { Journey } from '../src/core/types.ts';
@@ -156,7 +156,7 @@ test('Handler: ohne Bearbeitungsrecht nur ansehen', async () => {
   const service = createJourneyService({ store: memoryStore(), userAgent: 'test/1', client: fakeClient, cache: null });
   const ctx = { scope: 'default', owner: 'viewer', canEdit: false };
   const list = await (await handleJourneyRequest(service, req('/trips'), '/trips', ctx)).json();
-  assert.deepEqual(list, { trips: [] });
+  assert.deepEqual(list, { trips: [], avatar: null });
   assert.equal((await handleJourneyRequest(service, req('/stops?q=x'), '/stops', ctx)).status, 403);
   assert.equal((await handleJourneyRequest(service, req('/trips', { method: 'POST', body: '{}' }), '/trips', ctx)).status, 403);
 });
@@ -378,4 +378,47 @@ test('App-Migrationen entsprechen dem Paket-Schema (Teilen)', () => {
   const a = readFileSync(new URL('../migrations/0004_shares.sql', import.meta.url), 'utf8');
   const b = readFileSync(new URL('../app/migrations/0005_shares.sql', import.meta.url), 'utf8');
   assert.equal(b, a);
+});
+
+test('Foto: nur echte JPEG/PNG/WebP, für Betrachter sichtbar, über Teilen-Links, löschen', async () => {
+  const store = memoryStore();
+  const service = createJourneyService({ store, userAgent: 'test/1', client: { ...fakeClient, trip: async () => null }, cache: null });
+  const edit = { scope: 'w1', owner: 'me', canEdit: true };
+  const view = { scope: 'w1', owner: 'gast', canEdit: false };
+  const jpeg = Uint8Array.from([0xff, 0xd8, 0xff, 0xe0, 0, 16, 74, 70, 73, 70, 0, 1, 1, 0, 0, 1, 0xff, 0xd9]);
+  const dataUrl = `data:image/jpeg;base64,${btoa(String.fromCharCode(...jpeg))}`;
+  const put = (image: unknown, ctx = edit) => handleJourneyRequest(service, req('/avatar', { method: 'PUT', body: JSON.stringify({ image }) }), '/avatar', ctx);
+
+  assert.equal((await handleJourneyRequest(service, req('/avatar'), '/avatar', view)).status, 404);
+  // falscher Typ, gefälschter Inhalt, kein data:-URL, ohne Recht
+  assert.equal((await put('data:image/svg+xml;base64,PHN2Zz4=')).status, 400);
+  assert.equal((await put(`data:image/png;base64,${btoa(String.fromCharCode(...jpeg))}`)).status, 400);
+  assert.equal((await put('https://example.org/a.jpg')).status, 400);
+  assert.equal((await put(`data:image/jpeg;base64,${btoa('x'.repeat(210_000))}`)).status, 400);
+  assert.equal((await put(dataUrl, view)).status, 403);
+
+  const ok = await put(dataUrl);
+  assert.equal(ok.status, 200);
+  const { avatar } = await ok.json();
+  assert.match(avatar, /^[\w-]{12}$/);
+  const list = await (await handleJourneyRequest(service, req('/trips'), '/trips', view)).json();
+  assert.equal(list.avatar, avatar);
+  const img = await handleJourneyRequest(service, req(`/avatar?v=${avatar}`), '/avatar', view);
+  assert.equal(img.status, 200);
+  assert.equal(img.headers.get('Content-Type'), 'image/jpeg');
+  assert.deepEqual(new Uint8Array(await img.arrayBuffer()), jpeg);
+
+  // Teilen-Link: Version in den Daten, Bild nur solange der Link gilt
+  const j = shift(motisJourney(plan.itineraries[1]), 86400_000 * 400);
+  store.rows.push({ id: 'trip1', scope: 'w1', owner: 'me', ticket: 'flex', dticket: false, plannedJourney: j, journey: j, departAt: j.legs[0].from.plannedDeparture!, arriveAt: j.legs[2].to.plannedArrival!, refreshedAt: null, createdAt: '', boarding: emptyBoarding(), alternatives: null });
+  const share = await service.createShare('w1', 'trip1', {});
+  assert.equal((await (await handleSharedRequest(service, share.token)).json()).avatar, avatar);
+  assert.equal((await handleSharedAvatar(service, share.token)).status, 200);
+  assert.equal((await handleSharedAvatar(service, 'x'.repeat(32))).status, 404);
+  store.rows[0].arriveAt = new Date(Date.now() - 3 * 3600_000).toISOString();
+  assert.equal((await handleSharedAvatar(service, share.token)).status, 404);
+
+  assert.equal((await handleJourneyRequest(service, req('/avatar', { method: 'DELETE' }), '/avatar', edit)).status, 200);
+  assert.equal((await handleJourneyRequest(service, req('/avatar'), '/avatar', view)).status, 404);
+  assert.equal((await (await handleJourneyRequest(service, req('/trips'), '/trips', view)).json()).avatar, null);
 });

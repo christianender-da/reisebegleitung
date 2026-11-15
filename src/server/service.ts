@@ -114,13 +114,42 @@ export interface ShareInfo {
 export type SharedTripView = Omit<TripView, 'ticket' | 'dticket'> & { ticket?: undefined; dticket?: undefined };
 
 export type SharedResult =
-  | { status: 'ok'; trip: SharedTripView; expiresAt: string; sharedBy: string | null }
+  | { status: 'ok'; trip: SharedTripView; expiresAt: string; sharedBy: string | null; avatar?: string | null }
   | { status: 'expired' }
   | { status: 'not-found' };
 
 async function sha256(s: string): Promise<string> {
   const d = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)));
   return btoa(String.fromCharCode(...d)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+/** Foto/Avatar: im Browser auf 256 px verkleinert (siehe ui/avatar.ts); Obergrenze als Schutz */
+export const AVATAR_MAX_BYTES = 200_000;
+
+export interface Avatar {
+  type: 'image/jpeg' | 'image/png' | 'image/webp';
+  bytes: Uint8Array;
+  /** ändert sich mit dem Bild (für Cache-Adressen ?v=…) */
+  version: string;
+}
+
+/** data:-URL prüfen und dekodieren – nur JPEG/PNG/WebP, Dateityp anhand der ersten Bytes */
+export function parseAvatar(dataUrl: unknown): Omit<Avatar, 'version'> | null {
+  if (typeof dataUrl !== 'string' || dataUrl.length > AVATAR_MAX_BYTES * 1.4 + 64) return null;
+  const m = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/]+={0,2})$/.exec(dataUrl);
+  if (!m) return null;
+  let bytes: Uint8Array;
+  try {
+    bytes = Uint8Array.from(atob(m[2]), (c) => c.charCodeAt(0));
+  } catch {
+    return null;
+  }
+  if (bytes.length < 12 || bytes.length > AVATAR_MAX_BYTES) return null;
+  const b = (i: number, ...v: number[]) => v.every((x, k) => bytes[i + k] === x);
+  const type = m[1] as Avatar['type'];
+  const ok =
+    type === 'image/jpeg' ? b(0, 0xff, 0xd8, 0xff) : type === 'image/png' ? b(0, 0x89, 0x50, 0x4e, 0x47) : b(0, 0x52, 0x49, 0x46, 0x46) && b(8, 0x57, 0x45, 0x42, 0x50);
+  return ok ? { type, bytes } : null;
 }
 
 const shareExpiry = (arriveAt: string) => new Date(Date.parse(arriveAt) + SHARE_AFTER_ARRIVAL_MS).toISOString();
@@ -261,6 +290,16 @@ export function createJourneyService(opts: JourneyServiceOptions) {
     };
   }
 
+
+  async function avatarVersion(scope: string): Promise<string | null> {
+    return (await store.getPref(scope, 'avatar_v')) || null;
+  }
+
+  async function getAvatar(scope: string): Promise<Avatar | null> {
+    const [data, version] = await Promise.all([store.getPref(scope, 'avatar'), store.getPref(scope, 'avatar_v')]);
+    const a = data ? parseAvatar(data) : null;
+    return a && version ? { ...a, version } : null;
+  }
   return {
     async searchStops(q: string): Promise<StopHit[]> {
       const text = q.trim().slice(0, 80);
@@ -372,7 +411,35 @@ export function createJourneyService(opts: JourneyServiceOptions) {
       // nach dem Auffrischen kann sich die Ankunft verschoben haben
       if (t > Date.parse(shareExpiry(r.arriveAt))) return { status: 'expired' };
       const { ticket: _t, dticket: _d, ...trip } = view({ record: r, stale }, t);
-      return { status: 'ok', trip, expiresAt: shareExpiry(r.arriveAt), sharedBy: share.sharedBy };
+      return { status: 'ok', trip, expiresAt: shareExpiry(r.arriveAt), sharedBy: share.sharedBy, avatar: await avatarVersion(share.scope) };
+    },
+
+    /** Foto des Teilenden zu einem gültigen Teilen-Link (ohne Live-Abgleich) */
+    async sharedAvatar(token: string): Promise<Avatar | null> {
+      if (!/^[\w-]{20,64}$/.test(token)) return null;
+      const share = await store.getShare(await sha256(token));
+      if (!share) return null;
+      const r = await store.get(share.scope, share.tripId);
+      if (!r || Date.now() > Date.parse(shareExpiry(r.arriveAt))) return null;
+      return getAvatar(share.scope);
+    },
+
+    /** Version des Fotos (null = keins) */
+    avatarVersion,
+    avatar: getAvatar,
+
+    /** Foto speichern ({ image: data:-URL }); Ergebnis: neue Version */
+    async setAvatar(scope: string, b: { image?: unknown }): Promise<string> {
+      if (!parseAvatar(b.image)) throw new JourneyError('bad-request');
+      const version = (await sha256(b.image as string)).slice(0, 12);
+      await store.setPref(scope, 'avatar', b.image as string);
+      await store.setPref(scope, 'avatar_v', version);
+      return version;
+    },
+
+    async deleteAvatar(scope: string) {
+      await store.setPref(scope, 'avatar_v', '');
+      await store.setPref(scope, 'avatar', '');
     },
 
     async deleteTrip(scope: string, id: string) {

@@ -3,12 +3,12 @@
  *
  * /api/auth/*      Passkey-Anmeldung (Rate-Limit pro IP)
  * /api/journey/*   Reisebegleitung (nur angemeldet) – siehe src/server/handler.ts
- * /r/<token>       Teilen-Link ohne Anmeldung: Seite, /data (JSON), /lite (ohne JavaScript)
+ * /r/<token>       Teilen-Link ohne Anmeldung: Seite, /data (JSON), /avatar (Foto), /lite (ohne JavaScript)
  * sonst            Oberfläche (Assets, SPA)
  * Cron (jede Minute): laufende Reisen mit Echtzeit auffrischen
  */
 import { Hono, type Context } from 'hono';
-import { createJourneyService, d1Store, handleJourneyRequest, handleSharedRequest, renderSharedLite, type JourneyService } from '../../src/server/index.ts';
+import { createJourneyService, d1Store, handleJourneyRequest, handleSharedAvatar, handleSharedRequest, renderSharedLite, type JourneyService } from '../../src/server/index.ts';
 import * as auth from './auth.ts';
 import { contactOk, VERSION } from './config.ts';
 
@@ -158,6 +158,14 @@ app.get('/r/:token/data', async (c) => {
   if (!s) return c.json({ error: 'no-contact' }, 503);
   const res = await handleSharedRequest(s, c.req.param('token'));
   // ungültige Tokens bremsen (Raten verhindern)
+  if (res.status === 404 && (await limited(c))) return c.json({ error: 'rate-limited' }, 429);
+  return res;
+});
+
+app.get('/r/:token/avatar', async (c) => {
+  const s = journeyService(c.env);
+  if (!s) return c.json({ error: 'no-contact' }, 503);
+  const res = await handleSharedAvatar(s, c.req.param('token'));
   if (res.status === 404 && (await limited(c))) return c.json({ error: 'rate-limited' }, 429);
   return res;
 });

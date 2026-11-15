@@ -16,10 +16,13 @@
  *   POST   /push/subscribe   { subscription, lang }                    (canEdit)
  *   POST   /push/unsubscribe { endpoint }                              (canEdit)
  *   POST   /push/test        { lang }                                  (canEdit)  → { sent }
+ *   GET    /avatar?v=…     Foto (für alle, die die Reisen sehen; 404 = keins)
+ *   PUT    /avatar  { image: data:-URL (JPEG/PNG/WebP, ≤ 200 KB) }    (canEdit)  → { avatar: version }
+ *   DELETE /avatar                                                      (canEdit)
  *   GET    /stops?q=                                                     (canEdit)
  *   GET    /plan?from&to&time&arriveBy=1&ticket&dticket=1                (canEdit)
  */
-import { errorCode, parseTicket, type JourneyService } from './service.ts';
+import { errorCode, parseTicket, type Avatar, type JourneyService } from './service.ts';
 
 export interface JourneyRequestContext {
   /** Anzeigename für Empfänger von Teilen-Links (optional) */
@@ -36,6 +39,14 @@ function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' } });
 }
 
+/** Bild ausliefern; die Adresse enthält die Version (?v=…), darf also lange im Cache bleiben */
+function image(a: Avatar | null, maxAge: number): Response {
+  if (!a) return json({ error: 'not-found' }, 404);
+  return new Response(a.bytes as Uint8Array<ArrayBuffer>, {
+    headers: { 'Content-Type': a.type, 'Cache-Control': `private, max-age=${maxAge}`, 'X-Content-Type-Options': 'nosniff', ETag: `"${a.version}"` },
+  });
+}
+
 const status = (code: string) =>
   code === 'bad-request' || code === 'plan-expired' ? 400 : code === 'not-found' ? 404 : code === 'push-off' || code === 'too-many' ? 409 : code === 'expired' ? 410 : 502;
 
@@ -50,11 +61,12 @@ export async function handleJourneyRequest(service: JourneyService, request: Req
   try {
     if (parts[0] === 'trips' && parts.length === 1 && method === 'GET') {
       const trips = await service.trips(ctx.scope);
-      return json({ trips, dticket: ctx.canEdit ? await service.dticketDefault(ctx.scope) : undefined });
+      return json({ trips, dticket: ctx.canEdit ? await service.dticketDefault(ctx.scope) : undefined, avatar: await service.avatarVersion(ctx.scope) });
     }
+    if (parts[0] === 'avatar' && parts.length === 1 && method === 'GET') return image(await service.avatar(ctx.scope), 31_536_000);
     if (!ctx.canEdit) return json({ error: 'forbidden' }, 403);
     let body: Record<string, unknown> = {};
-    if (method === 'POST') {
+    if (method === 'POST' || method === 'PUT') {
       try {
         body = (await request.json()) as Record<string, unknown>;
       } catch {
@@ -82,6 +94,11 @@ export async function handleJourneyRequest(service: JourneyService, request: Req
     }
     if (parts[0] === 'trips' && parts.length === 3 && parts[2] === 'alternative' && method === 'POST') {
       return json({ trip: await service.chooseAlternative(ctx.scope, decodeURIComponent(parts[1]), body.index) });
+    }
+    if (parts[0] === 'avatar' && parts.length === 1 && method === 'PUT') return json({ avatar: await service.setAvatar(ctx.scope, body) });
+    if (parts[0] === 'avatar' && parts.length === 1 && method === 'DELETE') {
+      await service.deleteAvatar(ctx.scope);
+      return json({ ok: true });
     }
     if (parts[0] === 'push' && parts.length === 2) {
       if (parts[1] === 'key' && method === 'GET') return json({ key: service.pushKey() });
@@ -124,10 +141,20 @@ export async function handleJourneyRequest(service: JourneyService, request: Req
 export async function handleSharedRequest(service: JourneyService, token: string): Promise<Response> {
   try {
     const r = await service.shared(token);
-    if (r.status === 'ok') return json({ trip: r.trip, expiresAt: r.expiresAt, sharedBy: r.sharedBy });
+    if (r.status === 'ok') return json({ trip: r.trip, expiresAt: r.expiresAt, sharedBy: r.sharedBy, avatar: r.avatar ?? null });
     return json({ error: r.status }, r.status === 'expired' ? 410 : 404);
   } catch (e) {
     console.warn('reisebegleitung shared', String(e));
+    return json({ error: 'unavailable' }, 502);
+  }
+}
+
+/** Foto des Teilenden zu einem Teilen-Link (z. B. unter /r/<token>/avatar einhängen); 404 ohne Foto oder nach Ablauf */
+export async function handleSharedAvatar(service: JourneyService, token: string): Promise<Response> {
+  try {
+    return image(await service.sharedAvatar(token), 86_400);
+  } catch (e) {
+    console.warn('reisebegleitung shared avatar', String(e));
     return json({ error: 'unavailable' }, 502);
   }
 }
