@@ -98,6 +98,12 @@ function Track({ s, mode }: { s: Stopover; mode?: Mode }) {
   return <span class={`rb-track ${changed ? 'changed' : ''}`}>{trackText(i, mode, tr)}</span>;
 }
 
+/** Ist das Fahrzeug laut Echtzeit (sonst Plan) schon losgefahren? */
+const departed = (l: Leg, now: number) => {
+  const d = Date.parse(depTime(l.from) ?? '');
+  return Number.isFinite(d) && d <= now;
+};
+
 /** Zugnummern nur bei Zügen anzeigen (bei Tram/Bus sind es Umlaufnummern) */
 const isTrain = (m: Mode) => ['highspeed', 'longdistance', 'night', 'regional', 'suburban'].includes(m);
 
@@ -153,7 +159,7 @@ function LegItem({ l, current, now, onBoard, checkin }: { l: Leg; current: boole
   return (
     <li class={`rb-leg ${current ? 'current' : ''} ${l.cancelled ? 'cancelled' : ''}`}>
       <div class="rb-leg-head">
-        <VehicleIcon mode={l.mode} moving={current} />
+        <VehicleIcon mode={l.mode} moving={current && departed(l, now)} />
         <LineBadge l={l} />
         <span class="rb-dir">{l.headsign ? i.t('towards', { d: l.headsign }) : ''}</span>
         {l.number && isTrain(l.mode) && !(l.line ?? '').includes(l.number) && <span class="rb-muted rb-small">{i.t('train', { n: l.number })}</span>}
@@ -204,7 +210,8 @@ function Status({ j, now, boarding }: { j: Journey; now: number; boarding: Board
     sub = [l.line, l.from.stop.name, tr ? trackText(i, l.mode, tr) : ''].filter(Boolean).join(' · ');
   } else if (ph.kind === 'riding') {
     kind = 'busy';
-    icon = <VehicleIcon mode={j.legs[ph.legIndex].mode} moving />;
+    // eingestiegen, aber noch nicht abgefahren → Fahrzeug steht still
+    icon = <VehicleIcon mode={j.legs[ph.legIndex].mode} moving={departed(j.legs[ph.legIndex], now)} />;
     text = i.t(ph.onBoard ? 'onBoard' : 'riding', { line: lineName(j.legs[ph.legIndex].line, j.legs[ph.legIndex].mode, i.lang) });
     const at = arrTime(ph.next) ?? depTime(ph.next);
     sub = i.t('nextStop', { name: ph.next.stop.name, time: at ? i.time(at) : '–' });
