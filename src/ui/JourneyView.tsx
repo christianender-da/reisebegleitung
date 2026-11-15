@@ -16,6 +16,7 @@ import {
   depDelay,
   depTime,
   journeyEnds,
+  lineName,
   progress,
   rides,
   TRANSITOUS_SOURCES,
@@ -186,7 +187,7 @@ function Status({ j, now, boarding }: { j: Journey; now: number; boarding: Board
     const l = j.legs[bs.prompt.leg];
     icon = <MissedIcon />;
     kind = 'warn';
-    text = i.t('altMissedTrain', { line: l.line ?? '' });
+    text = i.t('altMissedTrain', { line: lineName(l.line, l.mode, i.lang) });
     sub = l.from.stop.name;
   } else if (ph.kind === 'before') {
     const l = j.legs[ph.legIndex];
@@ -198,7 +199,7 @@ function Status({ j, now, boarding }: { j: Journey; now: number; boarding: Board
   } else if (ph.kind === 'riding') {
     kind = 'busy';
     icon = <VehicleIcon mode={j.legs[ph.legIndex].mode} moving />;
-    text = i.t(ph.onBoard ? 'onBoard' : 'riding', { line: j.legs[ph.legIndex].line ?? '' });
+    text = i.t(ph.onBoard ? 'onBoard' : 'riding', { line: lineName(j.legs[ph.legIndex].line, j.legs[ph.legIndex].mode, i.lang) });
     const at = arrTime(ph.next) ?? depTime(ph.next);
     sub = i.t('nextStop', { name: ph.next.stop.name, time: at ? i.time(at) : '–' });
   } else if (ph.kind === 'transfer') {
@@ -213,7 +214,7 @@ function Status({ j, now, boarding }: { j: Journey; now: number; boarding: Board
       );
     text = i.t('changeAt', { at: ph.at.stop.name });
     const tr = l.from.track ?? l.from.plannedTrack;
-    sub = [l.kind === 'ride' ? i.t('nextLeg', { line: l.line ?? '', time: when(i, ph.departsAt) }) : '', tr ? trackText(i, l.mode, tr) : '']
+    sub = [l.kind === 'ride' ? i.t('nextLeg', { line: lineName(l.line, l.mode, i.lang), time: when(i, ph.departsAt) }) : '', tr ? trackText(i, l.mode, tr) : '']
       .filter(Boolean)
       .join(' · ');
   } else {
@@ -571,7 +572,7 @@ function AlternativesBox({ trip, canEdit, onChanged }: { trip: AnyTrip; canEdit:
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(false);
   const a = trip.alternatives!;
-  const title = i.t(a.reason === 'connection' ? 'altConnection' : a.reason === 'cancelled' ? 'altCancelled' : 'altMissedTrain', { line: a.line ?? '' });
+  const title = i.t(a.reason === 'connection' ? 'altConnection' : a.reason === 'cancelled' ? 'altCancelled' : 'altMissedTrain', { line: a.line || a.mode ? lineName(a.line, a.mode, i.lang) : '' });
 
   async function take(index: number) {
     if (!confirm(i.t('altConfirm'))) return;
@@ -777,7 +778,7 @@ function BoardingPrompt({
   const [error, setError] = useState(false);
   const j = trip.journey;
   const l = j.legs[prompt.leg];
-  const line = l.line ?? '?';
+  const line = lineName(l.line, l.mode, i.lang);
   const dep = depTime(l.from);
   const track = l.from.track ?? l.from.plannedTrack;
 

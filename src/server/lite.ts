@@ -3,7 +3,7 @@
  * große Schrift, lädt sich selbst neu. Die einbettende App liefert sie mit
  * `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'` aus (nur Inline-CSS, kein Skript).
  */
-import { arrDelay, arrTime, boardingState, depDelay, depTime, journeyEnds, progress, TRANSITOUS_SOURCES, transfers, type Journey, type Mode, type Stopover } from '../core/index.ts';
+import { arrDelay, arrTime, boardingState, depDelay, depTime, journeyEnds, lineName, progress, TRANSITOUS_SOURCES, transfers, type Journey, type Mode, type Stopover } from '../core/index.ts';
 import { i18n, trackText, type I18n, type Lang } from '../ui/i18n.ts';
 import type { SharedResult } from './service.ts';
 
@@ -25,7 +25,7 @@ function statusText(i: I18n, j: Journey, b: Parameters<typeof progress>[2], now:
   const bs = boardingState(j, b, now);
   if (bs.prompt?.kind === 'missed') {
     const l = j.legs[bs.prompt.leg];
-    return { text: i.t('altMissedTrain', { line: l.line ?? '' }), sub: l.from.stop.name };
+    return { text: i.t('altMissedTrain', { line: lineName(l.line, l.mode, i.lang) }), sub: l.from.stop.name };
   }
   const ph = progress(j, now, b).phase;
   if (ph.kind === 'before') {
@@ -34,11 +34,11 @@ function statusText(i: I18n, j: Journey, b: Parameters<typeof progress>[2], now:
   }
   if (ph.kind === 'riding') {
     const at = arrTime(ph.next) ?? depTime(ph.next);
-    return { text: i.t(ph.onBoard ? 'onBoard' : 'riding', { line: j.legs[ph.legIndex].line ?? '' }), sub: i.t('nextStop', { name: ph.next.stop.name, time: at ? i.time(at) : '–' }) };
+    return { text: i.t(ph.onBoard ? 'onBoard' : 'riding', { line: lineName(j.legs[ph.legIndex].line, j.legs[ph.legIndex].mode, i.lang) }), sub: i.t('nextStop', { name: ph.next.stop.name, time: at ? i.time(at) : '–' }) };
   }
   if (ph.kind === 'transfer') {
     const l = j.legs[ph.legIndex];
-    return { text: i.t('changeAt', { at: ph.at.stop.name }), sub: l.kind === 'ride' ? i.t('nextLeg', { line: l.line ?? '', time: i.time(ph.departsAt) }) : '' };
+    return { text: i.t('changeAt', { at: ph.at.stop.name }), sub: l.kind === 'ride' ? i.t('nextLeg', { line: lineName(l.line, l.mode, i.lang), time: i.time(ph.departsAt) }) : '' };
   }
   return { text: i.t('arrived', { time: i.time(ph.arrivedAt) }), sub: '' };
 }
@@ -69,13 +69,13 @@ export function renderSharedLite(result: SharedResult, lang: Lang = 'de', opts: 
       }
       const onBoard = boardingState(j, trip.boarding, now).onBoard === k;
       rows.push(
-        `<div class="leg"><p class="line"><b>${esc(l.line ?? '?')}</b>${l.headsign ? ` → ${esc(l.headsign)}` : ''}${l.cancelled ? ` <b>(${esc(i.t('cancelled'))})</b>` : ''}${onBoard ? ` <span class="tag">${esc(i.t('onBoardBadge'))}</span>` : ''}</p><table>${stopLine(i, l.from, 'dep', l.mode)}${stopLine(i, l.to, 'arr', l.mode)}</table></div>`,
+        `<div class="leg"><p class="line"><b>${esc(lineName(l.line, l.mode, i.lang))}</b>${l.headsign ? ` → ${esc(l.headsign)}` : ''}${l.cancelled ? ` <b>(${esc(i.t('cancelled'))})</b>` : ''}${onBoard ? ` <span class="tag">${esc(i.t('onBoardBadge'))}</span>` : ''}</p><table>${stopLine(i, l.from, 'dep', l.mode)}${stopLine(i, l.to, 'arr', l.mode)}</table></div>`,
       );
     });
     const arr = p.plannedArrival ? i.time(p.plannedArrival) : '–';
     const late = p.delayMin !== undefined && p.delayMin > 0 && p.arrival ? ` <b>+${p.delayMin}</b> → ${i.time(p.arrival)}` : p.delayMin !== undefined ? ` (${esc(i.t('onTime'))})` : '';
     const alt = trip.alternatives
-      ? `<p class="warn">${esc(i.t(trip.alternatives.reason === 'connection' ? 'altConnection' : trip.alternatives.reason === 'cancelled' ? 'altCancelled' : 'altMissedTrain', { line: trip.alternatives.line ?? '' }))}</p>`
+      ? `<p class="warn">${esc(i.t(trip.alternatives.reason === 'connection' ? 'altConnection' : trip.alternatives.reason === 'cancelled' ? 'altCancelled' : 'altMissedTrain', { line: lineName(trip.alternatives.line, trip.alternatives.mode, i.lang) }))}</p>`
       : '';
     body = `
 <p class="big">${esc(st.text)}</p>${st.sub ? `<p>${esc(st.sub)}</p>` : ''}

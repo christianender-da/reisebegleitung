@@ -6,6 +6,7 @@
  * 10 min erneut), Fahrtverläufe (/trip) 60 s im Cache, Live-Abfrage nur von 3 h vor Abfahrt bis 30 min nach Ankunft.
  */
 import {
+  lineName,
   alternativesTrigger,
   applyBoarding,
   DEMO_KEEP_LEGS,
@@ -233,7 +234,7 @@ export function createJourneyService(opts: JourneyServiceOptions) {
     const lifted = liftedFor(r.journey, trigger);
     const bookedTripIds = r.plannedJourney.legs.flatMap((l) => (l.tripId ? [l.tripId] : []));
     const dest = r.journey.legs.at(-1)!.to.stop;
-    const alt: StoredAlternatives = { key: trigger.key, reason: trigger.reason, keepLegs: trigger.keepLegs, origin: trigger.origin, time: trigger.time, line: trigger.line, bindingLifted: lifted, computedAt: nowIso(), options: [] };
+    const alt: StoredAlternatives = { key: trigger.key, reason: trigger.reason, keepLegs: trigger.keepLegs, origin: trigger.origin, time: trigger.time, line: trigger.line, mode: trigger.mode, bindingLifted: lifted, computedAt: nowIso(), options: [] };
     try {
       const found = await client.plan({ from: trigger.origin.id, to: dest.id, time: trigger.time, modes: searchModes(ctx), results: ALT_RESULTS + 2 });
       alt.options = found
@@ -312,7 +313,7 @@ export function createJourneyService(opts: JourneyServiceOptions) {
     const journey = chosen ? replaceRemainder(original, boarding, DEMO_KEEP_LEGS, chosen.journey).journey : original;
     const trigger = alternativesTrigger(journey, boarding, t);
     const alternatives: StoredAlternatives | null = trigger
-      ? { key: trigger.key, reason: trigger.reason, keepLegs: trigger.keepLegs, origin: trigger.origin, time: trigger.time, line: trigger.line, bindingLifted: liftedFor(journey, trigger), computedAt: new Date(t).toISOString(), options }
+      ? { key: trigger.key, reason: trigger.reason, keepLegs: trigger.keepLegs, origin: trigger.origin, time: trigger.time, line: trigger.line, mode: trigger.mode, bindingLifted: liftedFor(journey, trigger), computedAt: new Date(t).toISOString(), options }
       : null;
     return {
       record: { ...r, journey, boarding, alternatives, refreshedAt: new Date(t).toISOString() },
@@ -663,7 +664,7 @@ export function pushMessage(r: Pick<TripRecord, 'alternatives'>, lang: 'de' | 'e
   const a = r.alternatives!;
   const T = PUSH_TEXT[lang];
   const fill = (s: string, v: Record<string, string | number>) => Object.entries(v).reduce((acc, [k, x]) => acc.replace(`{${k}}`, String(x)), s);
-  const title = fill(T[a.reason], { line: a.line ?? '' }).trim();
+  const title = fill(T[a.reason], { line: lineName(a.line, a.mode, lang) }).trim();
   const covered = a.options.filter((o) => o.covered);
   const list = covered.length ? covered : a.options;
   if (!list.length) return { title, body: T.none };
