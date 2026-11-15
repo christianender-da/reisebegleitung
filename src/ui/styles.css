@@ -1281,3 +1281,59 @@
   text-align: right;
 }
 
+/* ---------- Strecke in der Detailansicht (eigene + geteilte „Detailliert“) ---------- */
+.rb-where-name .rb-track {
+  margin-left: 8px;
+  font-weight: 400;
+  font-size: 0.8rem;
+}
+
+.rb-where-dep {
+  flex-basis: 100%;
+  font-weight: 400;
+  color: var(--rb-muted);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+}
+
+.rb-where-inner {
+  flex-basis: 100%;
+  font-weight: 400;
+}
+
+.rb-where-inner summary {
+  cursor: pointer;
+  padding: 2px 0;
+}
+
+.rb-where-via {
+  display: grid;
+  grid-template-columns: 5.2em 1fr auto;
+  gap: 8px;
+  align-items: baseline;
+  padding: 2px 0;
+  color: var(--rb-muted);
+}
+
+.rb-where-via.cancelled > span:nth-child(2) {
+  text-decoration: line-through;
+}
+
+.rb-where-via-time {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.rb-where-ride .rb-line {
+  font-size: 0.85rem;
+}
+
+.rb-where-change.state-tight .rb-walker {
+  color: var(--rb-busy);
+}
+
+.rb-busy-text {
+  color: var(--rb-busy);
+}
