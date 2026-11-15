@@ -24,6 +24,10 @@ interface Env {
   VAPID_PRIVATE_JWK?: string;
   /** optional: Name, den Empfänger von Teilen-Links sehen („Geteilt von …“) */
   OWNER_NAME?: string;
+  /** "1": fehlende Zuggleise aus DB IRIS ergänzen (inoffiziell, ohne Key) */
+  IRIS_PLATFORMS?: string;
+  /** optional: andere IRIS-Adresse (z. B. lokale Weiterleitung) */
+  IRIS_URL?: string;
 }
 
 type App = { Bindings: Env };
@@ -53,13 +57,15 @@ let service: JourneyService | null = null;
 let serviceKey = '';
 function journeyService(env: Env): JourneyService | null {
   if (!contactOk(env.CONTACT)) return null;
-  const k = `${env.CONTACT}|${env.TRANSITOUS_URL ?? ''}|${env.VAPID_PRIVATE_JWK ?? ''}`;
+  const k = `${env.CONTACT}|${env.TRANSITOUS_URL ?? ''}|${env.VAPID_PRIVATE_JWK ?? ''}|${env.IRIS_PLATFORMS ?? ''}|${env.IRIS_URL ?? ''}`;
   if (!service || serviceKey !== k) {
     const contact = env.CONTACT!.trim();
     service = createJourneyService({
       store: d1Store(env.DB),
       userAgent: `reisebegleitung/${VERSION} (+${contact})`,
       apiBase: env.TRANSITOUS_URL || undefined,
+      irisPlatforms: env.IRIS_PLATFORMS === '1',
+      irisBase: env.IRIS_URL || undefined,
       // Push-Dienste verlangen einen Kontakt als mailto: oder https:
       push: { privateJwk: env.VAPID_PRIVATE_JWK, subject: contact.includes('@') && !contact.startsWith('http') ? `mailto:${contact}` : contact },
     });

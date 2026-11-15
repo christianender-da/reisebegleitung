@@ -32,6 +32,7 @@ import {
 } from '../core/index.ts';
 import type { CacheLike, StoredAlternatives, TripRecord, TripStore } from './store.ts';
 import { parseVapidJwk, sendPush, validSubscription, vapidPublicKey, type VapidConfig } from './webpush.ts';
+import { createIris, type Iris } from './iris.ts';
 
 export interface JourneyServiceOptions {
   store: TripStore;
@@ -49,6 +50,12 @@ export interface JourneyServiceOptions {
   notifyUrl?: (scope: string) => string;
   /** für Tests: Versand ersetzen */
   sendPush?: typeof sendPush;
+  /** fehlende Zuggleise aus DB IRIS ergänzen (inoffiziell, ohne Key) – Standard aus */
+  irisPlatforms?: boolean;
+  /** andere IRIS-Adresse (z. B. lokale Weiterleitung) */
+  irisBase?: string;
+  /** für Tests: IRIS ersetzen */
+  iris?: Iris;
 }
 
 export interface TripView {
@@ -165,6 +172,11 @@ export function createJourneyService(opts: JourneyServiceOptions) {
   const vapidJwk = parseVapidJwk(opts.push?.privateJwk);
   const vapid: VapidConfig | null = vapidJwk && opts.push ? { privateJwk: vapidJwk, subject: opts.push.subject } : null;
   const push = opts.sendPush ?? sendPush;
+  const iris: Iris | null = opts.iris ?? (opts.irisPlatforms ? createIris({ userAgent: opts.userAgent, cache, base: opts.irisBase }) : null);
+  const withTracks = async (j: Journey) => (iris ? iris.enrich(j).catch(() => j) : j);
+  /** Suchergebnisse: Gleise ergänzen, aber höchstens `ms` warten */
+  const withTracksQuick = (j: Journey, ms: number) =>
+    iris ? Promise.race([withTracks(j), new Promise<Journey>((res) => setTimeout(() => res(j), ms))]) : Promise.resolve(j);
 
   /** Alternativen pflegen: neu suchen bei neuem Auslöser (und alle 10 min), löschen, wenn alles wieder passt */
   async function maintainAlternatives(r: TripRecord, t: number): Promise<TripRecord> {
@@ -228,6 +240,7 @@ export function createJourneyService(opts: JourneyServiceOptions) {
 
   async function refresh(r: TripRecord): Promise<{ record: TripRecord; stale: boolean }> {
     const res = await refreshJourney(r.journey, cachedTrip);
+    res.journey = await withTracks(res.journey);
     const refreshedAt = nowIso();
     const arriveAt = journeyEnd(res.journey) ?? r.arriveAt;
     await store.updateLive(r.id, res.journey, arriveAt, refreshedAt);
@@ -271,7 +284,7 @@ export function createJourneyService(opts: JourneyServiceOptions) {
         if (!Number.isFinite(t) || t < Date.now() - 86400_000 || t > Date.now() + 180 * 86400_000) throw new JourneyError('bad-request');
         time = new Date(t).toISOString();
       }
-      const journeys = (
+      const found = (
         await client.plan({ from: q.from, to: q.to, time, arriveBy: q.arriveBy, modes: searchModes({ ticket: q.ticket, hasDTicket: q.dticket }), results: 5 })
       )
         .filter((j) => j.legs.some((l) => l.kind === 'ride'))
@@ -280,6 +293,7 @@ export function createJourneyService(opts: JourneyServiceOptions) {
           const to = q.toName?.trim().slice(0, 100);
           return from && to ? { ...j, title: { from, to } } : j;
         });
+      const journeys = await Promise.all(found.map((j) => withTracksQuick(j, 2500)));
       const planId = randomId(12);
       if (cache) await cache.put(key(`plan/${planId}`), new Response(JSON.stringify(journeys), { headers: { 'Cache-Control': `max-age=${PLAN_TTL_S}` } }));
       else memory.set(planId, journeys);
@@ -295,8 +309,9 @@ export function createJourneyService(opts: JourneyServiceOptions) {
         journeys = hit ? ((await hit.json()) as Journey[]) : undefined;
       } else journeys = memory.get(b.planId);
       if (!journeys) throw new JourneyError('plan-expired');
-      const j = journeys[b.index];
-      if (!j) throw new JourneyError('bad-request');
+      const chosen = journeys[b.index];
+      if (!chosen) throw new JourneyError('bad-request');
+      const j = await withTracks(chosen);
       const dticket = ticket === 'dticket' || b.dticket === true;
       const id = randomId();
       const t = nowIso();

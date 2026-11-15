@@ -30,7 +30,7 @@ import {
 } from '../core/index.ts';
 import type { ShareInfo, SharedTripView, TripView } from '../server/service.ts';
 import { JourneyApiError, type JourneyApi } from './api.ts';
-import { i18n, type I18n, type Key, type Lang } from './i18n.ts';
+import { i18n, trackText, type I18n, type Key, type Lang } from './i18n.ts';
 
 const Ctx = createContext<{ api: JourneyApi; i: I18n; shareUrl: (token: string) => string }>(null as never);
 /** Reise in der Oberfläche: eigene (mit Ticket) oder geteilte (ohne Ticketangaben) */
@@ -76,19 +76,22 @@ function Delay({ d }: { d?: number }) {
   return <span class={d >= 5 ? 'rb-late' : 'rb-slight'}>+{d}</span>;
 }
 
-function Track({ s }: { s: Stopover }) {
+function Track({ s, mode }: { s: Stopover; mode?: Mode }) {
   const i = useI();
   const tr = s.track ?? s.plannedTrack;
   if (!tr) return null;
   const changed = s.track && s.plannedTrack && s.track !== s.plannedTrack;
-  return <span class={`rb-track ${changed ? 'changed' : ''}`}>{i.t('platform', { p: tr })}</span>;
+  return <span class={`rb-track ${changed ? 'changed' : ''}`}>{trackText(i, mode, tr)}</span>;
 }
+
+/** Zugnummern nur bei Zügen anzeigen (bei Tram/Bus sind es Umlaufnummern) */
+const isTrain = (m: Mode) => ['highspeed', 'longdistance', 'night', 'regional', 'suburban'].includes(m);
 
 function LineBadge({ l }: { l: Leg }) {
   return <span class={`rb-line mode-${modeClass(l.mode)}`}>{l.line ?? '?'}</span>;
 }
 
-function StopRow({ s, kind, cls = '' }: { s: Stopover; kind: 'dep' | 'arr'; cls?: string }) {
+function StopRow({ s, kind, cls = '', mode }: { s: Stopover; kind: 'dep' | 'arr'; cls?: string; mode?: Mode }) {
   const i = useI();
   const planned = kind === 'dep' ? s.plannedDeparture : s.plannedArrival;
   return (
@@ -97,7 +100,7 @@ function StopRow({ s, kind, cls = '' }: { s: Stopover; kind: 'dep' | 'arr'; cls?
         {planned ? i.time(planned) : '–'} <Delay d={kind === 'dep' ? depDelay(s) : arrDelay(s)} />
       </span>
       <span class="rb-name">{s.stop.name}</span>
-      <Track s={s} />
+      <Track s={s} mode={mode} />
     </div>
   );
 }
@@ -135,20 +138,20 @@ function LegItem({ l, current, now, onBoard, checkin }: { l: Leg; current: boole
       <div class="rb-leg-head">
         <LineBadge l={l} />
         <span class="rb-dir">{l.headsign ? i.t('towards', { d: l.headsign }) : ''}</span>
-        {l.number && !(l.line ?? '').includes(l.number) && <span class="rb-muted rb-small">{i.t('train', { n: l.number })}</span>}
+        {l.number && isTrain(l.mode) && !(l.line ?? '').includes(l.number) && <span class="rb-muted rb-small">{i.t('train', { n: l.number })}</span>}
         {l.cancelled && <span class="rb-late">{i.t('cancelled')}</span>}
         {onBoard ? <span class="rb-onboard">{i.t('onBoardBadge')}</span> : checkin ? <span class="rb-muted rb-small">✓ {i.t('checkedIn', { time: i.time(checkin.at) })}</span> : null}
       </div>
-      <StopRow s={l.from} kind="dep" cls={passed(l.from) ? 'passed' : ''} />
+      <StopRow s={l.from} kind="dep" mode={l.mode} cls={passed(l.from) ? 'passed' : ''} />
       {l.stopovers.length > 0 && (
         <details class="rb-inner" open={current}>
           <summary class="rb-muted rb-small">{l.stopovers.length === 1 ? i.t('stop1') : i.t('stops', { n: l.stopovers.length })}</summary>
           {l.stopovers.map((s, k) => (
-            <StopRow s={s} kind="arr" key={k} cls={`inner ${passed(s) ? 'passed' : ''}`} />
+            <StopRow s={s} kind="arr" mode={l.mode} key={k} cls={`inner ${passed(s) ? 'passed' : ''}`} />
           ))}
         </details>
       )}
-      <StopRow s={l.to} kind="arr" cls={passed(l.to) ? 'passed' : ''} />
+      <StopRow s={l.to} kind="arr" mode={l.mode} cls={passed(l.to) ? 'passed' : ''} />
     </li>
   );
 }
@@ -171,7 +174,7 @@ function Status({ j, now, boarding }: { j: Journey; now: number; boarding: Board
     kind = 'off';
     text = i.t('departsAt', { time: when(i, ph.departsAt) });
     const tr = l.from.track ?? l.from.plannedTrack;
-    sub = [l.line, l.from.stop.name, tr ? i.t('platform', { p: tr }) : ''].filter(Boolean).join(' · ');
+    sub = [l.line, l.from.stop.name, tr ? trackText(i, l.mode, tr) : ''].filter(Boolean).join(' · ');
   } else if (ph.kind === 'riding') {
     kind = 'busy';
     text = i.t(ph.onBoard ? 'onBoard' : 'riding', { line: j.legs[ph.legIndex].line ?? '' });
@@ -182,7 +185,7 @@ function Status({ j, now, boarding }: { j: Journey; now: number; boarding: Board
     kind = 'busy';
     text = i.t('changeAt', { at: ph.at.stop.name });
     const tr = l.from.track ?? l.from.plannedTrack;
-    sub = [l.kind === 'ride' ? i.t('nextLeg', { line: l.line ?? '', time: when(i, ph.departsAt) }) : '', tr ? i.t('platform', { p: tr }) : '']
+    sub = [l.kind === 'ride' ? i.t('nextLeg', { line: l.line ?? '', time: when(i, ph.departsAt) }) : '', tr ? trackText(i, l.mode, tr) : '']
       .filter(Boolean)
       .join(' · ');
   } else {
@@ -666,7 +669,7 @@ function BoardingPrompt({
   let text: string;
   let buttons: JSX.Element;
   if (prompt.kind === 'checkin') {
-    text = i.t('checkinQuestion', { line, time: dep ? when(i, dep) : '–', track: track ? `, ${i.t('platform', { p: track })}` : '' });
+    text = i.t('checkinQuestion', { line, time: dep ? when(i, dep) : '–', track: track ? `, ${trackText(i, l.mode, track)}` : '' });
     buttons = (
       <button type="button" class="rb-btn rb-primary" disabled={busy} onClick={() => act('checkin')}>
         {i.t('checkinBtn')}
@@ -793,6 +796,9 @@ function ResultItem({ j, onTake, busy, option }: { j: Journey; onTake?: () => vo
   const i = useI();
   const r = rides(j);
   const cov = (l: Leg): Coverage | undefined => option?.coverage[j.legs.indexOf(l)];
+  const depTr = r[0] ? (r[0].from.track ?? r[0].from.plannedTrack) : undefined;
+  const lastRide = r.at(-1);
+  const arrTr = lastRide ? (lastRide.to.track ?? lastRide.to.plannedTrack) : undefined;
   const first = j.legs[0];
   const last = j.legs.at(-1)!;
   const n = r.length - 1;
@@ -807,6 +813,13 @@ function ResultItem({ j, onTake, busy, option }: { j: Journey; onTake?: () => vo
         <span class="rb-muted rb-small">
           {duration(j)} · {n === 0 ? i.t('direct') : n === 1 ? i.t('transfer1') : i.t('transfers', { n })}
         </span>
+        {(depTr || arrTr) && (
+          <span class="rb-muted rb-small">
+            {[depTr ? i.t('depTrack', { t: trackText(i, r[0]?.mode, depTr) }) : '', arrTr ? i.t('arrTrack', { t: trackText(i, r.at(-1)?.mode, arrTr) }) : '']
+              .filter(Boolean)
+              .join(' · ')}
+          </span>
+        )}
       </div>
       <div class="rb-result-lines">
         {r.map((l, k) => (

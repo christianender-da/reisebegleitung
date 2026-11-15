@@ -11,7 +11,9 @@ as building blocks for your own dashboard, or as a self-hosted Cloudflare app wi
 
 - Verbindungen suchen (Abfahrt/Ankunft) mit Ticketregeln: Flexpreis, Sparpreis, BahnCard 100, Deutschlandticket
 - Live-Fortschritt: vor Abfahrt · unterwegs mit nächstem Halt · Umstieg · angekommen
-- Abschnitte mit allen Zwischenhalten, Gleisen, Gleiswechseln und Verspätungen
+- Abschnitte mit allen Zwischenhalten, Abfahrts- und Ankunftsgleisen (Zug) bzw. Steigen (Tram/Bus), Gleiswechseln und Verspätungen.
+  Fehlen Zuggleise in den offenen Daten (häufig bei Regionalzügen und S-Bahnen), ergänzt sie die App optional aus DB IRIS
+  (`IRIS_PLATFORMS`, inoffizielle Schnittstelle ohne Key, kann wegfallen).
 - Umstiegsampel: ok · knapp · nicht erreichbar · fällt aus · geschafft
 - Check-in je Zug („Eingestiegen“): Status „An Bord“, Nachfrage „Zug verpasst?“, neue Verbindung ab dem Halt
 - Aktualisierung im Hintergrund (Cron jede Minute), auch wenn niemand die Seite offen hat

@@ -3,4 +3,5 @@ export * from './d1.ts';
 export * from './service.ts';
 export * from './handler.ts';
 export * from './webpush.ts';
+export * from './iris.ts';
 export * from './lite.ts';
