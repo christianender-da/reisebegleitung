@@ -135,19 +135,27 @@ body {
   color: var(--muted);
 }
 
-/* Installierte Web-App: iPadOS zeichnet den weichgezeichneten Streifen deutlich höher als die Statusleiste
-   (Statusleiste ~24 pt, Unschärfe bis ~70 pt) – Inhalt oben daher mindestens 72 px tief beginnen lassen.
-   Auf dem iPhone ist die Statusleiste selbst schon höher, dort bleibt es bei Statusleiste + Abstand. */
+/* Installierte Web-App auf iPhone/iPad (iOS 26+): Das System zeichnet unter der Statusleiste einen weichgezeichneten
+   Streifen (~40 pt, „scroll edge effect“). WebKit lässt ihn weg und füllt die Fläche einfarbig, wenn am oberen Rand ein
+   fest stehendes, deckendes Element liegt, das mindestens 90 % der Breite einnimmt und höher als 10 px ist
+   (LocalFrameView::fixedContainerEdges). Dieses Band ist 12 px hoch, hat die Seitenfarbe und fängt keine Klicks ab.
+   Damit kann der Inhalt direkt unter der Statusleiste beginnen (am Gerät bestätigt). */
+.ios-band {
+  display: none;
+}
+
 @media (display-mode: standalone) {
-  .top {
-    padding-top: max(calc(env(safe-area-inset-top, 0px) + 12px), 72px);
-  }
-
-  .shell.plain {
-    padding-top: max(calc(env(safe-area-inset-top, 0px) + 20px), 80px);
-  }
-
-  .shell.plain::before {
-    height: max(env(safe-area-inset-top, 0px), 64px);
+  @supports (-webkit-touch-callout: none) {
+    .ios-band {
+      display: block;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 12px;
+      background: var(--bg);
+      z-index: 2147483647;
+      pointer-events: none;
+    }
   }
 }
