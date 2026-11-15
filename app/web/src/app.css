@@ -134,3 +134,20 @@ body {
 .foot a {
   color: var(--muted);
 }
+
+/* Installierte Web-App: iPadOS zeichnet den weichgezeichneten Streifen deutlich höher als die Statusleiste
+   (Statusleiste ~24 pt, Unschärfe bis ~70 pt) – Inhalt oben daher mindestens 72 px tief beginnen lassen.
+   Auf dem iPhone ist die Statusleiste selbst schon höher, dort bleibt es bei Statusleiste + Abstand. */
+@media (display-mode: standalone) {
+  .top {
+    padding-top: max(calc(env(safe-area-inset-top, 0px) + 12px), 72px);
+  }
+
+  .shell.plain {
+    padding-top: max(calc(env(safe-area-inset-top, 0px) + 20px), 80px);
+  }
+
+  .shell.plain::before {
+    height: max(env(safe-area-inset-top, 0px), 64px);
+  }
+}
