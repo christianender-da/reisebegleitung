@@ -49,6 +49,16 @@ const TICKET_KEYS: Record<Ticket, Key> = {
   other: 'ticket_other',
 };
 
+/** Testfahrt: zum nächsten Szenenwechsel neu laden */
+function useDemoReload(trips: { demo?: { next: string } }[] | undefined, load: () => void) {
+  const next = trips?.reduce((m, t) => (t.demo ? Math.min(m, Date.parse(t.demo.next)) : m), Infinity) ?? Infinity;
+  useEffect(() => {
+    if (!Number.isFinite(next)) return;
+    const id = setTimeout(load, Math.max(1000, next - Date.now() + 1500));
+    return () => clearTimeout(id);
+  }, [next, load]);
+}
+
 function useTick(ms: number) {
   const [, set] = useState(0);
   useEffect(() => {
@@ -264,6 +274,12 @@ function TripCard({ trip, canEdit, onChanged, onReplan }: { trip: AnyTrip; canEd
           </div>
         </div>
       </div>
+      {trip.demo && (
+        <p class="rb-demo rb-small">
+          🧪{' '}
+          {i.t('demoNote', { n: trip.demo.scene, total: trip.demo.scenes, scene: i.t(`demo_${trip.demo.key.replace(/-/g, '_')}` as Key), time: i.time(trip.demo.next) })}
+        </p>
+      )}
       <Status j={j} now={now} boarding={boarding} />
       {trip.alternatives && <AlternativesBox trip={trip} canEdit={canEdit} onChanged={onChanged} />}
       {canEdit && bs.prompt && !(bs.prompt.kind === 'missed' && trip.alternatives?.options.length) && (
@@ -330,6 +346,7 @@ export function JourneyView({ api, canEdit, lang = 'de', refreshMs = 60_000, sha
       document.removeEventListener('visibilitychange', load);
     };
   }, [load, refreshMs]);
+  useDemoReload(data?.trips, load);
 
   return (
     <Ctx.Provider value={ctx}>
@@ -1100,6 +1117,8 @@ export function SharedView({ dataUrl, avatarUrl, lang = 'de', liteUrl, refreshMs
       document.removeEventListener('visibilitychange', load);
     };
   }, [load, refreshMs]);
+
+  useDemoReload(data ? [data.trip] : undefined, load);
 
   useEffect(() => {
     if (data) document.title = `${journeyEnds(data.trip.journey).from} → ${journeyEnds(data.trip.journey).to}`;

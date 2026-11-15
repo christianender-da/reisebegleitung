@@ -30,6 +30,11 @@ as building blocks for your own dashboard, or as a self-hosted Cloudflare app wi
 - **Animierte Icons** an den Reiseschritten (eigene Zeichnungen, ohne Marken): Zug, Tram, Bus und Fähre fahren im aktuellen
   Abschnitt; beim Umstieg läuft eine Person mit Rollkoffer – gemütlich ab 10 min Puffer, zügig bei 4–10 min, rennend darunter;
   ist der Anschluss nicht zu schaffen, dreht sich ein Zugkopf auf den Kopf und weint. Bei „Bewegung reduzieren“ stehen alle still.
+- **Testhaltestelle**: „Testhaltestelle“ in der Suche wählen (Start oder Ziel) → Testfahrt, die alle Zustände live zeigt und **jede Minute
+  die Szene wechselt** (9 Szenen): vor Abfahrt · im Bus · Umstieg gemütlich · Tram · Umstieg zügig · Regionalzug mit Verspätung und
+  Gleiswechsel · Umstieg knapp · S-Bahn mit nicht erreichbarem Anschluss und Alternativen (inkl. Fähre, Ticket-Hinweise) · angekommen.
+  Ohne Transitous/IRIS-Abfragen und ohne Benachrichtigungen; Check-ins gelten nur in der laufenden Szene, „Übernehmen“ ändert nichts.
+  Die Testfahrt bleibt einen Tag (Teilen-Links funktionieren auch).
 
 ## Drei Arten der Nutzung
 

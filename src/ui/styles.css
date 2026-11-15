@@ -646,6 +646,15 @@
   padding: 24px 0;
 }
 
+/* Testfahrt-Hinweis */
+.rb-demo {
+  margin: 0 0 8px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--rb-busy) 14%, transparent);
+  color: var(--rb-text);
+}
+
 /* ---------- Animierte Icons (icons.tsx) ---------- */
 .rb-root {
   --rb-vehicle: #2b6f7e;
