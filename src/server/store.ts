@@ -2,7 +2,7 @@
  * Speicher für Reisen. Mitgeliefert: D1 (Cloudflare) – siehe d1.ts und migrations/0001_journey.sql.
  * „scope“ trennt unabhängige Reiselisten (z. B. je Dashboard-Widget; eigenständige App: „default“).
  */
-import type { AlternativeOption, AlternativeReason, Boarding, Journey, Stop, Ticket } from '../core/index.ts';
+import type { AlternativeOption, AlternativeReason, Boarding, Journey, Mode, Stop, Ticket } from '../core/index.ts';
 import type { PushSubscriptionJSON } from './webpush.ts';
 
 export interface TripRecord {
@@ -36,6 +36,8 @@ export interface StoredAlternatives {
   /** ab wann gesucht wurde */
   time: string;
   line?: string;
+  /** Verkehrsmittel des betroffenen Zugs (ab 0.7.1; ältere Einträge ohne) */
+  mode?: Mode;
   bindingLifted: boolean;
   computedAt: string;
   options: AlternativeOption[];

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { DEMO_SCENES, DEMO_STOP, demoAlternativeJourneys, demoJourney, demoScene, isDemoJourney, matchesDemo } from '../src/core/demo.ts';
+import { DEMO_KEEP_LEGS, DEMO_SCENES, DEMO_STOP, demoAlternativeJourneys, demoJourney, demoScene, isDemoJourney, matchesDemo } from '../src/core/demo.ts';
 import { progress, transfers } from '../src/core/progress.ts';
 import { createJourneyService } from '../src/server/service.ts';
 import type { TransitousClient } from '../src/core/transitous.ts';
@@ -53,6 +53,9 @@ test('Testfahrt: jede Szene zeigt ihren Zustand – über die ganze Minute', () 
       assert.ok(slack(tr[2]) >= 0 && slack(tr[2]) < 4);
     }
   }
+  // angekommen auch mit der spätesten Alternative
+  const sc = demoScene(since + (DEMO_SCENES.length - 1) * MIN, since);
+  for (const alt of demoAlternativeJourneys(sc.start)) assert.ok(Date.parse(alt.legs.at(-1)!.to.plannedArrival!) < since + (DEMO_SCENES.length - 1) * MIN);
   // Schleife: nach der letzten Szene wieder „vor Abfahrt“
   assert.equal(demoScene(since + DEMO_SCENES.length * MIN, since).key, 'before');
 });
@@ -128,10 +131,20 @@ test('Testfahrt im Service: ohne Transitous, ohne IRIS, nicht im Hintergrund', a
   assert.equal(v.alternatives?.reason, 'connection');
   assert.equal(v.alternatives?.options.length, 3);
   assert.equal(v.alternatives?.bindingLifted, true);
+  assert.equal(v.alternatives?.keepLegs, DEMO_KEEP_LEGS);
 
-  // Check-in, Übernehmen: ohne Suche
-  await service.board('w1', id, 0, 'checkin');
-  await service.chooseAlternative('w1', id, 0);
+  // Check-in, Übernehmen, zurück: ohne Suche
+  const checked = await service.board('w1', id, 0, 'checkin');
+  assert.equal(checked.boarding.checkins.length, 1);
+  const taken = await service.chooseAlternative('w1', id, 0);
+  assert.equal(taken.replaced, true);
+  assert.equal(taken.alternatives, null, 'mit der Alternative passt der Anschluss');
+  assert.equal(taken.journey.legs[7].line, v.alternatives?.options[0].journey.legs[0].line);
+  assert.equal((await service.trips('w1'))[0].replaced, true);
+  const back = await service.revertTrip('w1', id);
+  assert.equal(back.replaced, undefined);
+  assert.equal(back.journey.legs[8].line, 'IC 2026');
+  assert.equal(back.alternatives?.options.length, 3);
   const bg = await service.refreshActive();
   assert.equal(bg.refreshed, 0);
   assert.deepEqual(calls.filter((c) => !c.startsWith('stops:')), []);

@@ -41,6 +41,15 @@ test('Check-in: an Bord, danach Nachfrage für den Anschluss', () => {
   if (early.kind === 'riding') assert.equal(early.legIndex, 2);
 });
 
+test('Check-in vor Abfahrt: nach Abfahrt keine erneute Nachfrage', () => {
+  const b = applyBoarding(j, emptyBoarding(), 0, 'checkin', '2026-11-14T22:20:00Z');
+  for (const t of ['2026-11-14T22:25:00Z', '2026-11-14T22:40:00Z', '2026-11-14T22:50:00Z']) {
+    const s = boardingState(j, b, at(t));
+    assert.equal(s.onBoard, 0, t);
+    assert.equal(s.prompt, null, t);
+  }
+});
+
 test('Verpasst markieren, zurücknehmen, doch eingestiegen', () => {
   const missed = applyBoarding(j, emptyBoarding(), 2, 'missed', '2026-11-14T23:40:00Z');
   assert.deepEqual(boardingState(j, missed, at('2026-11-14T23:45:00Z')).prompt, { kind: 'missed', leg: 2 });

@@ -164,6 +164,27 @@
   font-weight: 700;
 }
 
+.rb-state-icon {
+  display: inline-flex;
+  align-items: center;
+}
+
+/* im Status etwas größer als an den Abschnitten */
+.rb-state-icon .rb-ico {
+  width: 48px;
+  height: 27px;
+}
+
+.rb-state-icon .rb-walker {
+  width: 34px;
+  height: 30px;
+}
+
+.rb-state-icon .rb-gag {
+  width: 36px;
+  height: 36px;
+}
+
 .rb-state-sub {
   flex-basis: 100%;
   padding-left: 22px;
@@ -514,12 +535,29 @@
 }
 
 .rb-onboard {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   padding: 1px 8px;
   border-radius: 999px;
   background: var(--rb-accent);
   color: var(--rb-accent-text);
   font-size: 0.78rem;
   font-weight: 700;
+}
+
+/* „An Bord“ mit Foto der reisenden Person */
+.rb-onboard.with-photo {
+  padding-left: 2px;
+}
+
+.rb-onboard-photo {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1.5px solid var(--rb-accent-text);
+  background: var(--rb-card);
 }
 
 .rb-transfer.state-done .rb-dot {
@@ -644,6 +682,17 @@
   font-size: 1.2rem;
   font-weight: 600;
   padding: 24px 0;
+}
+
+/* Alternative übernommen – zurück zur ursprünglichen Verbindung */
+.rb-revert {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--rb-accent) 10%, transparent);
 }
 
 /* Testfahrt-Hinweis */

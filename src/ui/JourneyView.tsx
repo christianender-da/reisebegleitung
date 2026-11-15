@@ -16,6 +16,7 @@ import {
   depDelay,
   depTime,
   journeyEnds,
+  lineName,
   progress,
   rides,
   TRANSITOUS_SOURCES,
@@ -144,6 +145,7 @@ function TransferRow({ tr, walk, active }: { tr: Transfer; walk?: number; active
 
 function LegItem({ l, current, now, onBoard, checkin }: { l: Leg; current: boolean; now: number; onBoard: boolean; checkin?: BoardingEvent }) {
   const i = useI();
+  const { avatar } = useContext(Ctx);
   const passed = (s: Stopover) => {
     const x = Date.parse(arrTime(s) ?? depTime(s) ?? '');
     return Number.isFinite(x) && x <= now;
@@ -156,7 +158,12 @@ function LegItem({ l, current, now, onBoard, checkin }: { l: Leg; current: boole
         <span class="rb-dir">{l.headsign ? i.t('towards', { d: l.headsign }) : ''}</span>
         {l.number && isTrain(l.mode) && !(l.line ?? '').includes(l.number) && <span class="rb-muted rb-small">{i.t('train', { n: l.number })}</span>}
         {l.cancelled && <span class="rb-late">{i.t('cancelled')}</span>}
-        {onBoard ? <span class="rb-onboard">{i.t('onBoardBadge')}</span> : checkin ? <span class="rb-muted rb-small">✓ {i.t('checkedIn', { time: i.time(checkin.at) })}</span> : null}
+        {onBoard ? (
+          <span class={`rb-onboard ${avatar ? 'with-photo' : ''}`}>
+            {avatar && <img class="rb-onboard-photo" src={avatar} alt="" width={20} height={20} />}
+            {i.t('onBoardBadge')}
+          </span>
+        ) : checkin ? <span class="rb-muted rb-small">✓ {i.t('checkedIn', { time: i.time(checkin.at) })}</span> : null}
       </div>
       <StopRow s={l.from} kind="dep" mode={l.mode} cls={passed(l.from) ? 'passed' : ''} />
       {l.stopovers.length > 0 && (
@@ -180,28 +187,40 @@ function Status({ j, now, boarding }: { j: Journey; now: number; boarding: Board
   let kind: 'on' | 'busy' | 'off' | 'warn' = 'on';
   let text = '';
   let sub = '';
+  /** passendes Icon hinter dem Status: Fahrzeug, Person mit Rollkoffer oder (Anschluss weg) der weinende Zugkopf */
+  let icon: JSX.Element | null = null;
   if (bs.prompt?.kind === 'missed') {
     const l = j.legs[bs.prompt.leg];
+    icon = <MissedIcon />;
     kind = 'warn';
-    text = i.t('altMissedTrain', { line: l.line ?? '' });
+    text = i.t('altMissedTrain', { line: lineName(l.line, l.mode, i.lang) });
     sub = l.from.stop.name;
   } else if (ph.kind === 'before') {
     const l = j.legs[ph.legIndex];
     kind = 'off';
+    icon = <VehicleIcon mode={l.mode} moving={false} />;
     text = i.t('departsAt', { time: when(i, ph.departsAt) });
     const tr = l.from.track ?? l.from.plannedTrack;
     sub = [l.line, l.from.stop.name, tr ? trackText(i, l.mode, tr) : ''].filter(Boolean).join(' · ');
   } else if (ph.kind === 'riding') {
     kind = 'busy';
-    text = i.t(ph.onBoard ? 'onBoard' : 'riding', { line: j.legs[ph.legIndex].line ?? '' });
+    icon = <VehicleIcon mode={j.legs[ph.legIndex].mode} moving />;
+    text = i.t(ph.onBoard ? 'onBoard' : 'riding', { line: lineName(j.legs[ph.legIndex].line, j.legs[ph.legIndex].mode, i.lang) });
     const at = arrTime(ph.next) ?? depTime(ph.next);
     sub = i.t('nextStop', { name: ph.next.stop.name, time: at ? i.time(at) : '–' });
   } else if (ph.kind === 'transfer') {
     const l = j.legs[ph.legIndex];
     kind = 'busy';
+    const change = transfersOf(j, { boarding }).find((x) => x.toLeg === ph.legIndex);
+    icon =
+      change && (change.state === 'missed' || change.state === 'cancelled') ? (
+        <MissedIcon />
+      ) : (
+        <WalkerIcon pace={change ? walkPace(change.bufferMin - change.neededMin) : 'normal'} moving />
+      );
     text = i.t('changeAt', { at: ph.at.stop.name });
     const tr = l.from.track ?? l.from.plannedTrack;
-    sub = [l.kind === 'ride' ? i.t('nextLeg', { line: l.line ?? '', time: when(i, ph.departsAt) }) : '', tr ? trackText(i, l.mode, tr) : '']
+    sub = [l.kind === 'ride' ? i.t('nextLeg', { line: lineName(l.line, l.mode, i.lang), time: when(i, ph.departsAt) }) : '', tr ? trackText(i, l.mode, tr) : '']
       .filter(Boolean)
       .join(' · ');
   } else {
@@ -213,6 +232,7 @@ function Status({ j, now, boarding }: { j: Journey; now: number; boarding: Board
       <div class={`rb-state rb-state-${kind}`}>
         <span class="rb-dot" aria-hidden="true" />
         <span class="rb-state-text">{text}</span>
+        {icon && <span class="rb-state-icon">{icon}</span>}
         {sub && <span class="rb-muted rb-state-sub">{sub}</span>}
       </div>
       <div class="rb-arrival">
@@ -281,6 +301,7 @@ function TripCard({ trip, canEdit, onChanged, onReplan }: { trip: AnyTrip; canEd
         </p>
       )}
       <Status j={j} now={now} boarding={boarding} />
+      {trip.replaced && <RevertBox trip={trip} canEdit={canEdit} onChanged={onChanged} />}
       {trip.alternatives && <AlternativesBox trip={trip} canEdit={canEdit} onChanged={onChanged} />}
       {canEdit && bs.prompt && !(bs.prompt.kind === 'missed' && trip.alternatives?.options.length) && (
         <BoardingPrompt trip={trip} prompt={bs.prompt} onChanged={onChanged} onReplan={onReplan} />
@@ -519,12 +540,45 @@ function CoverageNote({ option }: { option: AlternativeOption }) {
 }
 
 /** Alternativen, wenn die Reise so nicht mehr klappt (Anschluss weg, Ausfall, Zug verpasst) */
+/** Hinweis „Alternative übernommen“ + Zurück zur ursprünglichen Verbindung */
+function RevertBox({ trip, canEdit, onChanged }: { trip: AnyTrip; canEdit: boolean; onChanged: () => void }) {
+  const { api, i } = useContext(Ctx);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(false);
+
+  async function revert() {
+    if (!confirm(i.t('revertConfirm'))) return;
+    setBusy(true);
+    setError(false);
+    try {
+      await api.revertTrip(trip.id);
+      onChanged();
+    } catch {
+      setError(true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div class="rb-revert rb-small">
+      <span>{i.t('replacedNote')}</span>
+      {canEdit && (
+        <button type="button" class="rb-btn rb-btn-small" disabled={busy} onClick={revert}>
+          {i.t('revert')}
+        </button>
+      )}
+      {error && <span class="rb-error">{i.t('revertFailed')}</span>}
+    </div>
+  );
+}
+
 function AlternativesBox({ trip, canEdit, onChanged }: { trip: AnyTrip; canEdit: boolean; onChanged: () => void }) {
   const { api, i } = useContext(Ctx);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(false);
   const a = trip.alternatives!;
-  const title = i.t(a.reason === 'connection' ? 'altConnection' : a.reason === 'cancelled' ? 'altCancelled' : 'altMissedTrain', { line: a.line ?? '' });
+  const title = i.t(a.reason === 'connection' ? 'altConnection' : a.reason === 'cancelled' ? 'altCancelled' : 'altMissedTrain', { line: a.line || a.mode ? lineName(a.line, a.mode, i.lang) : '' });
 
   async function take(index: number) {
     if (!confirm(i.t('altConfirm'))) return;
@@ -730,7 +784,7 @@ function BoardingPrompt({
   const [error, setError] = useState(false);
   const j = trip.journey;
   const l = j.legs[prompt.leg];
-  const line = l.line ?? '?';
+  const line = lineName(l.line, l.mode, i.lang);
   const dep = depTime(l.from);
   const track = l.from.track ?? l.from.plannedTrack;
 

@@ -1,4 +1,4 @@
-export const VERSION = '0.7.0-beta.1';
+export const VERSION = '0.7.1-beta.1';
 
 /** Kontakt prüfen: E-Mail-Adresse oder http(s)-URL (Pflicht laut Transitous) */
 export function contactOk(v: string | undefined): v is string {
