@@ -30,7 +30,7 @@ function statusText(i: I18n, j: Journey, b: Parameters<typeof progress>[2], now:
   const ph = progress(j, now, b).phase;
   if (ph.kind === 'before') {
     const l = j.legs[ph.legIndex];
-    return { text: i.t('departsAt', { time: i.time(ph.departsAt) }), sub: [l.line, l.from.stop.name].filter(Boolean).join(' · ') };
+    return { text: i.t('departsAt', { time: i.time(ph.departsAt) }), sub: [lineName(l.line, l.mode, i.lang), l.from.stop.name].filter(Boolean).join(' · ') };
   }
   if (ph.kind === 'riding') {
     const at = arrTime(ph.next) ?? depTime(ph.next);

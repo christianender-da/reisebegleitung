@@ -208,7 +208,7 @@ function Status({ j, now, boarding }: { j: Journey; now: number; boarding: Board
     icon = <VehicleIcon mode={l.mode} moving={false} />;
     text = i.t('departsAt', { time: when(i, ph.departsAt) });
     const tr = l.from.track ?? l.from.plannedTrack;
-    sub = [l.line, l.from.stop.name, tr ? trackText(i, l.mode, tr) : ''].filter(Boolean).join(' · ');
+    sub = [lineName(l.line, l.mode, i.lang), l.from.stop.name, tr ? trackText(i, l.mode, tr) : ''].filter(Boolean).join(' · ');
   } else if (ph.kind === 'riding') {
     kind = 'busy';
     // eingestiegen, aber noch nicht abgefahren → Fahrzeug steht still
@@ -256,7 +256,7 @@ function Status({ j, now, boarding }: { j: Journey; now: number; boarding: Board
 }
 
 function TripCard({ trip, canEdit, onChanged, onReplan }: { trip: AnyTrip; canEdit: boolean; onChanged: () => void; onReplan: (from: StopHit, to: StopHit) => void }) {
-  const { api, i, avatar } = useContext(Ctx);
+  const { api, i, avatar, compact } = useContext(Ctx);
   const j = trip.journey;
   const boarding = trip.boarding ?? { checkins: [], missed: [] };
   const now = Date.now();
@@ -310,14 +310,28 @@ function TripCard({ trip, canEdit, onChanged, onReplan }: { trip: AnyTrip; canEd
       )}
       <Status j={j} now={now} boarding={boarding} />
       {trip.replaced && <RevertBox trip={trip} canEdit={canEdit} onChanged={onChanged} />}
-      {trip.alternatives && <AlternativesBox trip={trip} canEdit={canEdit} onChanged={onChanged} />}
+      {trip.alternatives &&
+        (compact ? (
+          <p class="rb-alt-note">
+            <MissedIcon />
+            <span>{altTitle(i, trip.alternatives)}</span>
+          </p>
+        ) : (
+          <AlternativesBox trip={trip} canEdit={canEdit} onChanged={onChanged} />
+        ))}
       {canEdit && bs.prompt && !(bs.prompt.kind === 'missed' && trip.alternatives?.options.length) && (
         <BoardingPrompt trip={trip} prompt={bs.prompt} onChanged={onChanged} onReplan={onReplan} />
       )}
-      <ol class="rb-legs" data-title={i.t('connectionTitle')}>
-        {items}
-      </ol>
-      {lastWalk ? <p class="rb-muted rb-small">{i.t('walk', { n: lastWalk })}</p> : null}
+      {compact ? (
+        <Whereabouts j={j} now={now} boarding={boarding} />
+      ) : (
+        <>
+          <ol class="rb-legs" data-title={i.t('connectionTitle')}>
+            {items}
+          </ol>
+          {lastWalk ? <p class="rb-muted rb-small">{i.t('walk', { n: lastWalk })}</p> : null}
+        </>
+      )}
       {trip.stale && trip.refreshedAt && <p class="rb-muted rb-small">{i.t('stale', { time: i.time(trip.refreshedAt) })}</p>}
       {canEdit && sharing && <SharePanel trip={trip} />}
       {canEdit && (
@@ -583,12 +597,90 @@ function RevertBox({ trip, canEdit, onChanged }: { trip: AnyTrip; canEdit: boole
   );
 }
 
+/** Überschrift zu Alternativen („Anschluss Bus 42 nicht erreichbar“ …) */
+function altTitle(i: I18n, a: NonNullable<AnyTrip['alternatives']>) {
+  return i.t(a.reason === 'connection' ? 'altConnection' : a.reason === 'cancelled' ? 'altCancelled' : 'altMissedTrain', {
+    line: a.line || a.mode ? lineName(a.line, a.mode, i.lang) : '',
+  });
+}
+
+/**
+ * Reduzierte Ansicht (geteilte Reise): „Wo ist die Person gerade?“ – Start, Umstiegshalte und Ziel als Strecke,
+ * die aktuelle Fahrt mit fahrendem Fahrzeug und eigenem Fortschritt, beim Umsteigen die Person mit Rollkoffer am Halt.
+ */
+function Whereabouts({ j, now, boarding }: { j: Journey; now: number; boarding: Boarding }) {
+  const i = useI();
+  const p = progress(j, now, boarding);
+  const ph = p.phase;
+  const trs = transfersOf(j, { boarding });
+  const rides = j.legs.flatMap((l, k) => (l.kind === 'ride' ? [k] : []));
+  const at = (s: Stopover, kind: 'dep' | 'arr') => (kind === 'dep' ? depTime(s) : arrTime(s) ?? depTime(s));
+  const reached = (s: Stopover, kind: 'dep' | 'arr') => {
+    const t = Date.parse(at(s, kind) ?? '');
+    return Number.isFinite(t) && t <= now;
+  };
+  const rows: JSX.Element[] = [];
+  const stop = (s: Stopover, kind: 'dep' | 'arr', key: string, extra?: JSX.Element | null, here = false) => {
+    const planned = kind === 'dep' ? s.plannedDeparture : s.plannedArrival;
+    rows.push(
+      <li class={`rb-where-stop ${reached(s, kind) ? 'passed' : ''} ${here ? 'here' : ''}`} key={key}>
+        <span class="rb-where-dot" aria-hidden="true" />
+        <span class="rb-where-name">{s.stop.name}</span>
+        <span class="rb-where-time">
+          {planned ? i.time(planned) : '–'} <Delay d={kind === 'dep' ? depDelay(s) : arrDelay(s)} />
+        </span>
+        {extra && <span class="rb-where-extra">{extra}</span>}
+      </li>,
+    );
+  };
+  rides.forEach((k, n) => {
+    const l = j.legs[k];
+    if (n === 0) stop(l.from, 'dep', `s${k}`, null, ph.kind === 'before');
+    const riding = ph.kind === 'riding' && ph.legIndex === k;
+    const done = !riding && reached(l.to, 'arr');
+    const fraction = riding ? Math.max(0, Math.min(1, (now - Date.parse(depTime(l.from) ?? '')) / (Date.parse(arrTime(l.to) ?? '') - Date.parse(depTime(l.from) ?? '')))) : 0;
+    rows.push(
+      <li class={`rb-where-ride ${riding ? 'current' : ''} ${done ? 'passed' : ''}`} key={`r${k}`}>
+        <VehicleIcon mode={l.mode} moving={riding && departed(l, now)} />
+        <span class="rb-where-line">{lineName(l.line, l.mode, i.lang)}</span>
+        {riding && ph.kind === 'riding' && (
+          <span class="rb-where-progress">
+            <span class="rb-bar" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(fraction * 100)}>
+              <span style={{ width: `${Math.round(fraction * 100)}%` }} />
+            </span>
+          </span>
+        )}
+      </li>,
+    );
+    // Halt am Ende der Fahrt: Ziel oder Umstieg
+    const next = rides[n + 1];
+    const tr = next !== undefined ? trs.find((x) => x.toLeg === next) : undefined;
+    const changing = next !== undefined && ph.kind === 'transfer' && ph.legIndex === next;
+    const lost = tr && (tr.state === 'missed' || tr.state === 'cancelled');
+    const extra = lost ? (
+      <>
+        <MissedIcon /> <strong class="rb-late">{i.t(tr.state === 'cancelled' ? 'transferCancelled' : 'missed')}</strong>
+      </>
+    ) : changing && tr ? (
+      <>
+        <WalkerIcon pace={walkPace(tr.bufferMin - tr.neededMin)} moving /> {i.t('changeTo', { line: lineName(j.legs[next].line, j.legs[next].mode, i.lang) })}
+      </>
+    ) : null;
+    stop(l.to, 'arr', `e${k}`, extra, changing || (next === undefined && ph.kind === 'arrived'));
+  });
+  return (
+    <ol class="rb-where" data-title={i.t('whereTitle')}>
+      {rows}
+    </ol>
+  );
+}
+
 function AlternativesBox({ trip, canEdit, onChanged }: { trip: AnyTrip; canEdit: boolean; onChanged: () => void }) {
   const { api, i } = useContext(Ctx);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(false);
   const a = trip.alternatives!;
-  const title = i.t(a.reason === 'connection' ? 'altConnection' : a.reason === 'cancelled' ? 'altCancelled' : 'altMissedTrain', { line: a.line || a.mode ? lineName(a.line, a.mode, i.lang) : '' });
+  const title = altTitle(i, a);
 
   async function take(index: number) {
     if (!confirm(i.t('altConfirm'))) return;
