@@ -1,9 +1,35 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="96" fill="#1b1f25"/>
-  <rect x="136" y="96" width="240" height="260" rx="48" fill="#5b8ff0"/>
-  <rect x="172" y="136" width="168" height="84" rx="14" fill="#e8eaed"/>
-  <circle cx="200" cy="292" r="22" fill="#e8eaed"/>
-  <circle cx="312" cy="292" r="22" fill="#e8eaed"/>
-  <path d="M176 356 136 420M336 356 376 420" stroke="#9aa1ab" stroke-width="22" stroke-linecap="round"/>
-  <path d="M120 424h272" stroke="#3ccf7a" stroke-width="22" stroke-linecap="round"/>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1f8f6a"/><stop offset="1" stop-color="#0f4f63"/></linearGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#bg)"/>
+  <!-- Strecke mit Halten, Ziel-Pin -->
+  <path d="M84 412 H404" stroke="#ffffff" stroke-opacity=".35" stroke-width="12" stroke-linecap="round" stroke-dasharray="2 30"/>
+  <path d="M84 412 H250" stroke="#ffffff" stroke-width="12" stroke-linecap="round"/>
+  <circle cx="84" cy="412" r="16" fill="#ffffff"/>
+  <circle cx="190" cy="412" r="16" fill="#ffffff"/>
+  <circle cx="300" cy="412" r="14" fill="none" stroke="#ffffff" stroke-width="8" stroke-opacity=".6"/>
+  <path d="M430 352 c-26 0 -44 19 -44 42 c0 31 44 66 44 66 s44 -35 44 -66 c0 -23 -18 -42 -44 -42 z" fill="#ffd45a"/>
+  <circle cx="430" cy="392" r="15" fill="#0f4f63"/>
+  <!-- Zug von der Seite, Nase nach rechts -->
+  <path d="M60 140 H330 C392 140 438 184 452 244 L456 270 H60 Z" fill="#f6f8fb"/>
+  <path d="M60 250 H456 V282 H60 Z" fill="#d8dfec"/>
+  <path d="M340 156 C384 160 418 192 432 232 H340 Z" fill="#14324a"/>
+  <rect x="84" y="170" width="56" height="50" rx="12" fill="#14324a"/>
+  <rect x="160" y="170" width="56" height="50" rx="12" fill="#14324a"/>
+  <rect x="236" y="170" width="56" height="50" rx="12" fill="#14324a"/>
+  <rect x="60" y="232" width="372" height="10" fill="#3ccf7a"/>
+  <!-- Schiene -->
+  <rect x="44" y="318" width="424" height="8" rx="4" fill="#ffffff" opacity=".55"/>
+  <!-- Drehgestelle: Rahmen + je zwei Räder mit Nabe -->
+  <g fill="#1f2d3a">
+    <rect x="92" y="280" width="92" height="20" rx="8"/>
+    <rect x="320" y="280" width="92" height="20" rx="8"/>
+    <circle cx="114" cy="302" r="16"/><circle cx="162" cy="302" r="16"/>
+    <circle cx="342" cy="302" r="16"/><circle cx="390" cy="302" r="16"/>
+  </g>
+  <g fill="#9fb3c8">
+    <circle cx="114" cy="302" r="6"/><circle cx="162" cy="302" r="6"/>
+    <circle cx="342" cy="302" r="6"/><circle cx="390" cy="302" r="6"/>
+  </g>
 </svg>
