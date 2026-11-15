@@ -661,10 +661,12 @@ function Whereabouts({ j, now, boarding }: { j: Journey; now: number; boarding: 
       <>
         <MissedIcon /> <strong class="rb-late">{i.t(tr.state === 'cancelled' ? 'transferCancelled' : 'missed')}</strong>
       </>
-    ) : changing && tr ? (
-      <>
-        <WalkerIcon pace={walkPace(tr.bufferMin - tr.neededMin)} moving /> {i.t('changeTo', { line: lineName(j.legs[next].line, j.legs[next].mode, i.lang) })}
-      </>
+    ) : tr ? (
+      // an jedem Umstiegshalt die Person mit Rollkoffer; nur beim aktuellen Umstieg läuft sie (und ist größer)
+      <span class={`rb-where-change ${changing ? 'here' : ''}`}>
+        <WalkerIcon pace={walkPace(tr.bufferMin - tr.neededMin)} moving={changing} />
+        {changing ? i.t('changeTo', { line: lineName(j.legs[next].line, j.legs[next].mode, i.lang) }) : i.t('buffer', { n: tr.bufferMin })}
+      </span>
     ) : null;
     stop(l.to, 'arr', `e${k}`, extra, changing || (next === undefined && ph.kind === 'arrived'));
   });
