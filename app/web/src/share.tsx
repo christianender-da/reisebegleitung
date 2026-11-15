@@ -9,7 +9,7 @@ document.documentElement.lang = lang;
 const token = location.pathname.split('/')[2] ?? '';
 
 render(
-  <main class="shell">
+  <main class="shell plain">
     <SharedView dataUrl={`/r/${encodeURIComponent(token)}/data`} liteUrl={`/r/${encodeURIComponent(token)}/lite`} lang={lang} />
   </main>,
   document.getElementById('app')!,
