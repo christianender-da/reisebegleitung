@@ -8,6 +8,15 @@
 import {
   alternativesTrigger,
   applyBoarding,
+  DEMO_SCENES,
+  DEMO_SCENE_MS,
+  DEMO_STOP,
+  demoAlternativeJourneys,
+  demoJourney,
+  demoScene,
+  isDemoJourney,
+  isDemoStop,
+  matchesDemo,
   liftedFor,
   rateAlternative,
   replaceRemainder,
@@ -69,6 +78,8 @@ export interface TripView {
   transfers: Transfer[];
   refreshedAt: string | null;
   stale?: boolean;
+  /** Testfahrt ab der Testhaltestelle: aktuelle Szene (wechselt jede Minute) */
+  demo?: { scene: number; scenes: number; key: string; next: string };
 }
 
 export type BoardingAction = 'checkin' | 'missed' | 'undo';
@@ -114,13 +125,42 @@ export interface ShareInfo {
 export type SharedTripView = Omit<TripView, 'ticket' | 'dticket'> & { ticket?: undefined; dticket?: undefined };
 
 export type SharedResult =
-  | { status: 'ok'; trip: SharedTripView; expiresAt: string; sharedBy: string | null }
+  | { status: 'ok'; trip: SharedTripView; expiresAt: string; sharedBy: string | null; avatar?: string | null }
   | { status: 'expired' }
   | { status: 'not-found' };
 
 async function sha256(s: string): Promise<string> {
   const d = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)));
   return btoa(String.fromCharCode(...d)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+/** Foto/Avatar: im Browser auf 256 px verkleinert (siehe ui/avatar.ts); Obergrenze als Schutz */
+export const AVATAR_MAX_BYTES = 200_000;
+
+export interface Avatar {
+  type: 'image/jpeg' | 'image/png' | 'image/webp';
+  bytes: Uint8Array;
+  /** ändert sich mit dem Bild (für Cache-Adressen ?v=…) */
+  version: string;
+}
+
+/** data:-URL prüfen und dekodieren – nur JPEG/PNG/WebP, Dateityp anhand der ersten Bytes */
+export function parseAvatar(dataUrl: unknown): Omit<Avatar, 'version'> | null {
+  if (typeof dataUrl !== 'string' || dataUrl.length > AVATAR_MAX_BYTES * 1.4 + 64) return null;
+  const m = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/]+={0,2})$/.exec(dataUrl);
+  if (!m) return null;
+  let bytes: Uint8Array;
+  try {
+    bytes = Uint8Array.from(atob(m[2]), (c) => c.charCodeAt(0));
+  } catch {
+    return null;
+  }
+  if (bytes.length < 12 || bytes.length > AVATAR_MAX_BYTES) return null;
+  const b = (i: number, ...v: number[]) => v.every((x, k) => bytes[i + k] === x);
+  const type = m[1] as Avatar['type'];
+  const ok =
+    type === 'image/jpeg' ? b(0, 0xff, 0xd8, 0xff) : type === 'image/png' ? b(0, 0x89, 0x50, 0x4e, 0x47) : b(0, 0x52, 0x49, 0x46, 0x46) && b(8, 0x57, 0x45, 0x42, 0x50);
+  return ok ? { type, bytes } : null;
 }
 
 const shareExpiry = (arriveAt: string) => new Date(Date.parse(arriveAt) + SHARE_AFTER_ARRIVAL_MS).toISOString();
@@ -246,8 +286,34 @@ export function createJourneyService(opts: JourneyServiceOptions) {
     return { record, stale: res.failed.length > 0 };
   }
 
-  function view({ record: r, stale }: { record: TripRecord; stale?: boolean }, t: number): TripView {
+  /**
+   * Testfahrt: Uhrzeiten so verschoben, dass „jetzt“ in der aktuellen Szene liegt; Alternativen fest vorgegeben.
+   * Check-ins gelten nur innerhalb der Szene (danach beginnt die nächste Szene sauber).
+   */
+  function demoRecord(r: TripRecord, t: number): { record: TripRecord; demo: NonNullable<TripView['demo']> } {
+    const sc = demoScene(t, Date.parse(r.createdAt) || 0);
+    const journey = demoJourney(sc.start);
+    const sceneStart = sc.next - DEMO_SCENE_MS;
+    const boarding = { checkins: r.boarding.checkins.filter((e) => Date.parse(e.at) >= sceneStart), missed: r.boarding.missed.filter((e) => Date.parse(e.at) >= sceneStart) };
+    const trigger = alternativesTrigger(journey, boarding, t);
+    let alternatives: StoredAlternatives | null = null;
+    if (trigger) {
+      const ctx = { ticket: r.ticket, hasDTicket: r.dticket };
+      const lifted = liftedFor(journey, trigger);
+      const options = demoAlternativeJourneys(sc.start)
+        .map((j) => rateAlternative(j, ctx, { bindingLifted: lifted, bookedTripIds: [] }))
+        .sort((a, b) => Number(b.covered) - Number(a.covered) || Date.parse(journeyEnd(a.journey) ?? '') - Date.parse(journeyEnd(b.journey) ?? ''));
+      alternatives = { key: trigger.key, reason: trigger.reason, keepLegs: trigger.keepLegs, origin: trigger.origin, time: trigger.time, line: trigger.line, bindingLifted: lifted, computedAt: new Date(t).toISOString(), options };
+    }
     return {
+      record: { ...r, journey, boarding, alternatives, refreshedAt: new Date(t).toISOString() },
+      demo: { scene: sc.index + 1, scenes: DEMO_SCENES.length, key: sc.key, next: new Date(sc.next).toISOString() },
+    };
+  }
+
+  function view({ record: r, stale, demo }: { record: TripRecord; stale?: boolean; demo?: TripView['demo'] }, t: number): TripView {
+    return {
+      demo,
       id: r.id,
       ticket: r.ticket,
       dticket: r.dticket,
@@ -261,10 +327,22 @@ export function createJourneyService(opts: JourneyServiceOptions) {
     };
   }
 
+
+  async function avatarVersion(scope: string): Promise<string | null> {
+    return (await store.getPref(scope, 'avatar_v')) || null;
+  }
+
+  async function getAvatar(scope: string): Promise<Avatar | null> {
+    const [data, version] = await Promise.all([store.getPref(scope, 'avatar'), store.getPref(scope, 'avatar_v')]);
+    const a = data ? parseAvatar(data) : null;
+    return a && version ? { ...a, version } : null;
+  }
   return {
     async searchStops(q: string): Promise<StopHit[]> {
       const text = q.trim().slice(0, 80);
       if (text.length < 2) return [];
+      // Testhaltestelle: Testfahrt mit allen Zuständen (ohne Transitous); echte Treffer, soweit erreichbar
+      if (matchesDemo(text)) return [DEMO_STOP, ...(await client.searchStops(text, 7).catch(() => []))];
       const k = key(`stops/${encodeURIComponent(text.toLowerCase())}`);
       const hit = cache ? await cache.match(k) : undefined;
       if (hit) return hit.json();
@@ -276,6 +354,14 @@ export function createJourneyService(opts: JourneyServiceOptions) {
     /** Ergebnis 30 min gemerkt, damit „Übernehmen“ nur planId + Nummer schicken muss */
     async plan(q: PlanQuery): Promise<{ planId: string; journeys: Journey[] }> {
       if (!STOP_ID.test(q.from) || !STOP_ID.test(q.to)) throw new JourneyError('bad-request');
+      if (isDemoStop(q.from) || isDemoStop(q.to)) {
+        // Testfahrt: Abfahrt in 4 min (die Szenen beginnen nach dem Anlegen)
+        const journeys = [demoJourney(Math.ceil(Date.now() / 60_000) * 60_000 + 4 * 60_000)];
+        const planId = randomId(12);
+        if (cache) await cache.put(key(`plan/${planId}`), new Response(JSON.stringify(journeys), { headers: { 'Cache-Control': `max-age=${PLAN_TTL_S}` } }));
+        else memory.set(planId, journeys);
+        return { planId, journeys };
+      }
       let time: string | undefined;
       if (q.time) {
         const t = Date.parse(q.time);
@@ -310,7 +396,8 @@ export function createJourneyService(opts: JourneyServiceOptions) {
       if (!journeys) throw new JourneyError('plan-expired');
       const chosen = journeys[b.index];
       if (!chosen) throw new JourneyError('bad-request');
-      const j = await withTracks(chosen);
+      const demo = isDemoJourney(chosen);
+      const j = demo ? chosen : await withTracks(chosen);
       const dticket = ticket === 'dticket' || b.dticket === true;
       const id = randomId();
       const t = nowIso();
@@ -322,8 +409,9 @@ export function createJourneyService(opts: JourneyServiceOptions) {
         dticket,
         plannedJourney: j,
         journey: j,
-        departAt: journeyPlannedStart(j) ?? t,
-        arriveAt: journeyEnd(j) ?? t,
+        departAt: demo ? t : (journeyPlannedStart(j) ?? t),
+        // Testfahrt bleibt einen Tag (Teilen-Links bis 2 h danach)
+        arriveAt: demo ? new Date(Date.now() + 86400_000).toISOString() : (journeyEnd(j) ?? t),
         refreshedAt: t,
         createdAt: t,
         boarding: emptyBoarding(),
@@ -368,11 +456,41 @@ export function createJourneyService(opts: JourneyServiceOptions) {
       const t = Date.now();
       if (t > Date.parse(shareExpiry(r.arriveAt))) return { status: 'expired' };
       let stale = false;
-      if (refreshDue(r, t)) ({ record: r, stale } = await refresh(r));
+      let demo: TripView['demo'];
+      if (isDemoJourney(r.journey)) ({ record: r, demo } = demoRecord(r, t));
+      else if (refreshDue(r, t)) ({ record: r, stale } = await refresh(r));
       // nach dem Auffrischen kann sich die Ankunft verschoben haben
       if (t > Date.parse(shareExpiry(r.arriveAt))) return { status: 'expired' };
-      const { ticket: _t, dticket: _d, ...trip } = view({ record: r, stale }, t);
-      return { status: 'ok', trip, expiresAt: shareExpiry(r.arriveAt), sharedBy: share.sharedBy };
+      const { ticket: _t, dticket: _d, ...trip } = view({ record: r, stale, demo }, t);
+      return { status: 'ok', trip, expiresAt: shareExpiry(r.arriveAt), sharedBy: share.sharedBy, avatar: await avatarVersion(share.scope) };
+    },
+
+    /** Foto des Teilenden zu einem gültigen Teilen-Link (ohne Live-Abgleich) */
+    async sharedAvatar(token: string): Promise<Avatar | null> {
+      if (!/^[\w-]{20,64}$/.test(token)) return null;
+      const share = await store.getShare(await sha256(token));
+      if (!share) return null;
+      const r = await store.get(share.scope, share.tripId);
+      if (!r || Date.now() > Date.parse(shareExpiry(r.arriveAt))) return null;
+      return getAvatar(share.scope);
+    },
+
+    /** Version des Fotos (null = keins) */
+    avatarVersion,
+    avatar: getAvatar,
+
+    /** Foto speichern ({ image: data:-URL }); Ergebnis: neue Version */
+    async setAvatar(scope: string, b: { image?: unknown }): Promise<string> {
+      if (!parseAvatar(b.image)) throw new JourneyError('bad-request');
+      const version = (await sha256(b.image as string)).slice(0, 12);
+      await store.setPref(scope, 'avatar', b.image as string);
+      await store.setPref(scope, 'avatar_v', version);
+      return version;
+    },
+
+    async deleteAvatar(scope: string) {
+      await store.setPref(scope, 'avatar_v', '');
+      await store.setPref(scope, 'avatar', '');
     },
 
     async deleteTrip(scope: string, id: string) {
@@ -388,7 +506,7 @@ export function createJourneyService(opts: JourneyServiceOptions) {
       const t = Date.now();
       await store.purge(new Date(t - DELETE_AFTER_ARRIVAL_MS).toISOString());
       const rows = await store.list(scope, new Date(t - VISIBLE_AFTER_ARRIVAL_MS).toISOString());
-      return Promise.all(rows.map(async (r) => view(refreshDue(r, t) ? await refresh(r) : { record: r }, t)));
+      return Promise.all(rows.map(async (r) => view(isDemoJourney(r.journey) ? demoRecord(r, t) : refreshDue(r, t) ? await refresh(r) : { record: r }, t)));
     },
 
     /** Check-in, „verpasst“ oder Zurücknehmen für einen Fahrt-Abschnitt */
@@ -397,6 +515,14 @@ export function createJourneyService(opts: JourneyServiceOptions) {
       const r = await store.get(scope, id);
       if (!r) throw new JourneyError('not-found');
       if (typeof leg !== 'number' || r.journey.legs[leg]?.kind !== 'ride') throw new JourneyError('bad-request');
+      if (isDemoJourney(r.journey)) {
+        // Testfahrt: Check-in gilt für die aktuelle Szene; keine Suche, keine Benachrichtigung
+        const t = Date.now();
+        const cur = demoRecord(r, t);
+        const boarding = applyBoarding(cur.record.journey, cur.record.boarding, leg, action);
+        await store.setBoarding(r.id, boarding);
+        return view(demoRecord({ ...r, boarding }, t), t);
+      }
       const boarding = applyBoarding(r.journey, r.boarding, leg, action);
       await store.setBoarding(r.id, boarding);
       // „verpasst“ → sofort Alternativen suchen
@@ -407,6 +533,8 @@ export function createJourneyService(opts: JourneyServiceOptions) {
     async chooseAlternative(scope: string, id: string, index: unknown): Promise<TripView> {
       const r = await store.get(scope, id);
       if (!r) throw new JourneyError('not-found');
+      // Testfahrt: Übernehmen ändert nichts (die Szenen laufen weiter)
+      if (isDemoJourney(r.journey)) return view(demoRecord(r, Date.now()), Date.now());
       const option = typeof index === 'number' ? r.alternatives?.options[index] : undefined;
       if (!r.alternatives || !option) throw new JourneyError('bad-request');
       const { journey, boarding } = replaceRemainder(r.journey, r.boarding, r.alternatives.keepLegs, option.journey);
@@ -455,7 +583,8 @@ export function createJourneyService(opts: JourneyServiceOptions) {
       const t = Date.now();
       const rows = await store.listActive(new Date(t + LIVE_BEFORE_MS).toISOString(), new Date(t - LIVE_AFTER_MS).toISOString());
       // höchstens 3 Reisen je Lauf (Unteranfragen-Limit), die mit der nächsten Abfahrt zuerst – der Rest folgt im nächsten Lauf
-      const due = rows.filter((r) => refreshDue(r, t)).slice(0, MAX_REFRESH_PER_RUN);
+      // Testfahrten nie im Hintergrund (keine Abfragen, keine Benachrichtigungen)
+      const due = rows.filter((r) => !isDemoJourney(r.journey) && refreshDue(r, t)).slice(0, MAX_REFRESH_PER_RUN);
       for (const r of due) await refresh(r).catch((e) => console.warn('reisebegleitung refresh', r.id, String(e)));
       return { checked: rows.length, refreshed: due.length };
     },

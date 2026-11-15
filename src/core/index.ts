@@ -7,3 +7,4 @@ export * from './refresh.ts';
 export * from './tickets.ts';
 export * from './transitous.ts';
 export { motisJourney, motisLeg, motisMode, motisStopHit, motisStopover } from './motis.ts';
+export * from './demo.ts';

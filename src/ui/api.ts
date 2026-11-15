@@ -24,7 +24,11 @@ export interface PlanParams {
 }
 
 export interface JourneyApi {
-  trips(): Promise<{ trips: TripView[]; dticket?: boolean }>;
+  trips(): Promise<{ trips: TripView[]; dticket?: boolean; avatar?: string | null }>;
+  /** Adresse des Fotos zu einer Version (aus trips().avatar) */
+  avatarUrl(version: string): string;
+  setAvatar(image: string): Promise<{ avatar: string }>;
+  deleteAvatar(): Promise<void>;
   createTrip(body: { planId: string; index: number; ticket: Ticket; dticket: boolean }): Promise<{ id: string }>;
   deleteTrip(id: string): Promise<void>;
   board(id: string, leg: number, action: 'checkin' | 'missed' | 'undo'): Promise<{ trip: TripView }>;
@@ -68,6 +72,11 @@ export function createJourneyApi(base: string, opts: ApiOptions = {}): JourneyAp
   }
   return {
     trips: () => call('/trips'),
+    avatarUrl: (version) => `${root}/avatar?v=${encodeURIComponent(version)}`,
+    setAvatar: (image) => call('/avatar', { method: 'PUT', body: { image } }),
+    deleteAvatar: async () => {
+      await call('/avatar', { method: 'DELETE' });
+    },
     createTrip: (body) => call('/trips', { body }),
     deleteTrip: async (id) => {
       await call(`/trips/${encodeURIComponent(id)}`, { method: 'DELETE' });

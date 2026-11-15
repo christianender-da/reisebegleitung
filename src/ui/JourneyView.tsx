@@ -4,7 +4,7 @@
  * Aktualisierung alle 60 s, solange sichtbar. Der Quellenlink zu Transitous ist Pflicht und bleibt sichtbar.
  */
 import { createContext, type JSX } from 'preact';
-import { useCallback, useContext, useEffect, useMemo, useState } from 'preact/hooks';
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import {
   arrDelay,
   arrTime,
@@ -30,9 +30,12 @@ import {
 } from '../core/index.ts';
 import type { ShareInfo, SharedTripView, TripView } from '../server/service.ts';
 import { JourneyApiError, type JourneyApi } from './api.ts';
+import { prepareAvatar } from './avatar.ts';
+import { MissedIcon, VehicleIcon, WalkerIcon, walkPace } from './icons.tsx';
 import { i18n, trackText, type I18n, type Key, type Lang } from './i18n.ts';
 
-const Ctx = createContext<{ api: JourneyApi; i: I18n; shareUrl: (token: string) => string }>(null as never);
+/** avatar: Adresse des Fotos (falls vorhanden) */
+const Ctx = createContext<{ api: JourneyApi; i: I18n; shareUrl: (token: string) => string; avatar?: string }>(null as never);
 /** Reise in der Oberfläche: eigene (mit Ticket) oder geteilte (ohne Ticketangaben) */
 type AnyTrip = Omit<TripView, 'ticket' | 'dticket'> & { ticket?: Ticket; dticket?: boolean };
 const defaultShareUrl = (token: string) => `${location.origin}/r/${token}`;
@@ -45,6 +48,16 @@ const TICKET_KEYS: Record<Ticket, Key> = {
   dticket: 'ticket_dticket',
   other: 'ticket_other',
 };
+
+/** Testfahrt: zum nächsten Szenenwechsel neu laden */
+function useDemoReload(trips: { demo?: { next: string } }[] | undefined, load: () => void) {
+  const next = trips?.reduce((m, t) => (t.demo ? Math.min(m, Date.parse(t.demo.next)) : m), Infinity) ?? Infinity;
+  useEffect(() => {
+    if (!Number.isFinite(next)) return;
+    const id = setTimeout(load, Math.max(1000, next - Date.now() + 1500));
+    return () => clearTimeout(id);
+  }, [next, load]);
+}
 
 function useTick(ms: number) {
   const [, set] = useState(0);
@@ -105,8 +118,9 @@ function StopRow({ s, kind, cls = '', mode }: { s: Stopover; kind: 'dep' | 'arr'
   );
 }
 
-function TransferRow({ tr, walk }: { tr: Transfer; walk?: number }) {
+function TransferRow({ tr, walk, active }: { tr: Transfer; walk?: number; active: boolean }) {
   const i = useI();
+  const lost = tr.state === 'missed' || tr.state === 'cancelled';
   const text = tr.state === 'cancelled' ? i.t('transferCancelled') : tr.state === 'missed' ? i.t('missed') : tr.state === 'tight' ? i.t('tight') : '';
   if (tr.state === 'done')
     return (
@@ -116,8 +130,9 @@ function TransferRow({ tr, walk }: { tr: Transfer; walk?: number }) {
       </li>
     );
   return (
-    <li class={`rb-transfer state-${tr.state}`}>
+    <li class={`rb-transfer state-${tr.state} ${active ? 'active' : ''}`}>
       <span class="rb-dot" aria-hidden="true" />
+      {lost ? <MissedIcon /> : <WalkerIcon pace={walkPace(tr.bufferMin - tr.neededMin)} moving={active} />}
       <span>
         {i.t('buffer', { n: tr.bufferMin })}
         {walk ? ` · ${i.t('walk', { n: walk })}` : ''}
@@ -136,6 +151,7 @@ function LegItem({ l, current, now, onBoard, checkin }: { l: Leg; current: boole
   return (
     <li class={`rb-leg ${current ? 'current' : ''} ${l.cancelled ? 'cancelled' : ''}`}>
       <div class="rb-leg-head">
+        <VehicleIcon mode={l.mode} moving={current} />
         <LineBadge l={l} />
         <span class="rb-dir">{l.headsign ? i.t('towards', { d: l.headsign }) : ''}</span>
         {l.number && isTrain(l.mode) && !(l.line ?? '').includes(l.number) && <span class="rb-muted rb-small">{i.t('train', { n: l.number })}</span>}
@@ -212,7 +228,7 @@ function Status({ j, now, boarding }: { j: Journey; now: number; boarding: Board
 }
 
 function TripCard({ trip, canEdit, onChanged, onReplan }: { trip: AnyTrip; canEdit: boolean; onChanged: () => void; onReplan: (from: StopHit, to: StopHit) => void }) {
-  const { api, i } = useContext(Ctx);
+  const { api, i, avatar } = useContext(Ctx);
   const j = trip.journey;
   const boarding = trip.boarding ?? { checkins: [], missed: [] };
   const now = Date.now();
@@ -228,7 +244,7 @@ function TripCard({ trip, canEdit, onChanged, onReplan }: { trip: AnyTrip; canEd
     const tr = trs.find((x) => x.toLeg === k);
     if (tr) {
       const walk = j.legs.slice(tr.fromLeg + 1, k).reduce((s, w) => s + (w.walkMin ?? 0), 0);
-      items.push(<TransferRow tr={tr} walk={walk} key={`t${k}`} />);
+      items.push(<TransferRow tr={tr} walk={walk} active={ph.kind === 'transfer' && ph.legIndex === k} key={`t${k}`} />);
     }
     items.push(<LegItem l={l} current={k === currentLeg} now={now} onBoard={bs.onBoard === k} checkin={boarding.checkins.find((e) => e.leg === k)} key={`l${k}`} />);
   });
@@ -246,15 +262,24 @@ function TripCard({ trip, canEdit, onChanged, onReplan }: { trip: AnyTrip; canEd
   return (
     <section class="rb-trip">
       <div class="rb-head">
-        <h3>
-          {ends.from} → {ends.to}
-        </h3>
-        <div class="rb-muted rb-small">
-          {[start ? i.day(start) : '', trip.ticket ? i.t(TICKET_KEYS[trip.ticket]) : '', trip.ticket && trip.dticket && trip.ticket !== 'dticket' ? i.t('withDTicket') : '']
-            .filter(Boolean)
-            .join(' · ')}
+        {avatar && <Avatar src={avatar} />}
+        <div class="rb-head-text">
+          <h3>
+            {ends.from} → {ends.to}
+          </h3>
+          <div class="rb-muted rb-small">
+            {[start ? i.day(start) : '', trip.ticket ? i.t(TICKET_KEYS[trip.ticket]) : '', trip.ticket && trip.dticket && trip.ticket !== 'dticket' ? i.t('withDTicket') : '']
+              .filter(Boolean)
+              .join(' · ')}
+          </div>
         </div>
       </div>
+      {trip.demo && (
+        <p class="rb-demo rb-small">
+          🧪{' '}
+          {i.t('demoNote', { n: trip.demo.scene, total: trip.demo.scenes, scene: i.t(`demo_${trip.demo.key.replace(/-/g, '_')}` as Key), time: i.time(trip.demo.next) })}
+        </p>
+      )}
       <Status j={j} now={now} boarding={boarding} />
       {trip.alternatives && <AlternativesBox trip={trip} canEdit={canEdit} onChanged={onChanged} />}
       {canEdit && bs.prompt && !(bs.prompt.kind === 'missed' && trip.alternatives?.options.length) && (
@@ -293,11 +318,12 @@ export interface JourneyViewProps {
 /** Hauptansicht: alle Reisen mit Live-Stand + (für Berechtigte) „Reise anlegen“ */
 export function JourneyView({ api, canEdit, lang = 'de', refreshMs = 60_000, shareUrl = defaultShareUrl }: JourneyViewProps) {
   const i = useMemo(() => i18n(lang), [lang]);
-  const ctx = useMemo(() => ({ api, i, shareUrl }), [api, i, shareUrl]);
-  const [data, setData] = useState<{ trips: TripView[]; dticket?: boolean } | null>(null);
+  const [data, setData] = useState<{ trips: TripView[]; dticket?: boolean; avatar?: string | null } | null>(null);
   const [failed, setFailed] = useState(false);
   /** false = Liste; sonst „Reise anlegen“, ggf. mit Start/Ziel vorbelegt */
   const [creating, setCreating] = useState<false | { from?: StopHit; to?: StopHit }>(false);
+  const avatarVersion = data?.avatar ?? null;
+  const ctx = useMemo(() => ({ api, i, shareUrl, avatar: avatarVersion ? api.avatarUrl(avatarVersion) : undefined }), [api, i, shareUrl, avatarVersion]);
   useTick(30_000);
 
   const load = useCallback(() => {
@@ -320,6 +346,7 @@ export function JourneyView({ api, canEdit, lang = 'de', refreshMs = 60_000, sha
       document.removeEventListener('visibilitychange', load);
     };
   }, [load, refreshMs]);
+  useDemoReload(data?.trips, load);
 
   return (
     <Ctx.Provider value={ctx}>
@@ -354,6 +381,7 @@ export function JourneyView({ api, canEdit, lang = 'de', refreshMs = 60_000, sha
               </a>
             </div>
             {canEdit && <PushToggle />}
+            {canEdit && data && <PhotoSetting hasPhoto={!!avatarVersion} onChanged={load} />}
             <Disclaimer />
           </>
         )}
@@ -537,6 +565,67 @@ function AlternativesBox({ trip, canEdit, onChanged }: { trip: AnyTrip; canEdit:
 function urlKey(b64: string): Uint8Array<ArrayBuffer> {
   const bin = atob(b64.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((b64.length + 3) % 4));
   return Uint8Array.from(bin, (c) => c.charCodeAt(0));
+}
+
+/** Rundes Foto; verschwindet, wenn es nicht lädt */
+function Avatar({ src, size = 40 }: { src: string; size?: number }) {
+  const [broken, setBroken] = useState(false);
+  useEffect(() => setBroken(false), [src]);
+  if (broken) return null;
+  return <img class="rb-avatar" src={src} alt="" width={size} height={size} style={{ width: `${size}px`, height: `${size}px` }} onError={() => setBroken(true)} />;
+}
+
+/** Foto hochladen/ändern/entfernen (nur wer bearbeiten darf) */
+function PhotoSetting({ hasPhoto, onChanged }: { hasPhoto: boolean; onChanged: () => void }) {
+  const { api, i, avatar } = useContext(Ctx);
+  const input = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState('');
+
+  async function choose(e: Event) {
+    const file = (e.currentTarget as HTMLInputElement).files?.[0];
+    (e.currentTarget as HTMLInputElement).value = '';
+    if (!file) return;
+    setBusy(true);
+    setNote('');
+    try {
+      await api.setAvatar(await prepareAvatar(file));
+      onChanged();
+    } catch {
+      setNote(i.t('photoFailed'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove() {
+    if (!confirm(i.t('confirmDelete'))) return;
+    setBusy(true);
+    try {
+      await api.deleteAvatar();
+      onChanged();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div class="rb-photo rb-small">
+      <div class="rb-row rb-wrap">
+        {hasPhoto && avatar ? <Avatar src={avatar} size={32} /> : <span class="rb-avatar rb-avatar-empty" aria-hidden="true" />}
+        <button type="button" class="rb-btn rb-btn-small" disabled={busy} onClick={() => input.current?.click()}>
+          {hasPhoto ? i.t('photoChange') : i.t('photoChoose')}
+        </button>
+        {hasPhoto && (
+          <button type="button" class="rb-btn rb-btn-small" disabled={busy} onClick={remove}>
+            {i.t('photoRemove')}
+          </button>
+        )}
+        <input ref={input} type="file" accept="image/*" hidden onChange={choose} />
+      </div>
+      <p class="rb-muted">{note || i.t('photoHint')}</p>
+    </div>
+  );
 }
 
 /** Benachrichtigungen (Web Push) für dieses Gerät ein-/ausschalten */
@@ -984,6 +1073,8 @@ function NewTrip({
 export interface SharedViewProps {
   /** JSON-Adresse des Links (handleSharedRequest), z. B. /r/<token>/data */
   dataUrl: string;
+  /** Adresse des Fotos (handleSharedAvatar); Standard: dataUrl mit /avatar statt /data */
+  avatarUrl?: string;
   lang?: Lang;
   /** Adresse der einfachen Ansicht ohne JavaScript (optional) */
   liteUrl?: string;
@@ -993,10 +1084,14 @@ export interface SharedViewProps {
 const noApi = new Proxy({}, { get: () => () => Promise.reject(new Error('read-only')) }) as JourneyApi;
 
 /** Nur ansehen: Reise mit Live-Stand, ohne Anmeldung und ohne Ticketangaben; „abgelaufen“ nach Ablauf */
-export function SharedView({ dataUrl, lang = 'de', liteUrl, refreshMs = 60_000 }: SharedViewProps) {
+export function SharedView({ dataUrl, avatarUrl, lang = 'de', liteUrl, refreshMs = 60_000 }: SharedViewProps) {
   const i = useMemo(() => i18n(lang), [lang]);
-  const ctx = useMemo(() => ({ api: noApi, i, shareUrl: defaultShareUrl }), [i]);
-  const [data, setData] = useState<{ trip: SharedTripView; expiresAt: string; sharedBy: string | null } | null>(null);
+  const [data, setData] = useState<{ trip: SharedTripView; expiresAt: string; sharedBy: string | null; avatar?: string | null } | null>(null);
+  const version = data?.avatar ?? null;
+  const ctx = useMemo(
+    () => ({ api: noApi, i, shareUrl: defaultShareUrl, avatar: version ? `${avatarUrl ?? dataUrl.replace(/\/data$/, '/avatar')}?v=${encodeURIComponent(version)}` : undefined }),
+    [i, version, avatarUrl, dataUrl],
+  );
   const [state, setState] = useState<'loading' | 'ok' | 'expired' | 'not-found' | 'error'>('loading');
   useTick(30_000);
 
@@ -1022,6 +1117,8 @@ export function SharedView({ dataUrl, lang = 'de', liteUrl, refreshMs = 60_000 }
       document.removeEventListener('visibilitychange', load);
     };
   }, [load, refreshMs]);
+
+  useDemoReload(data ? [data.trip] : undefined, load);
 
   useEffect(() => {
     if (data) document.title = `${journeyEnds(data.trip.journey).from} → ${journeyEnds(data.trip.journey).to}`;
