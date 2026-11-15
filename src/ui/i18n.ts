@@ -139,6 +139,9 @@ const de = {
   asOfNow: 'Stand {time}',
   liteLink: 'Einfache Ansicht (für E-Reader und ältere Browser)',
   fullLink: 'Ausführliche Ansicht',
+  viewLabel: 'Ansicht',
+  viewCompact: 'Reduziert',
+  viewDetailed: 'Detailliert',
   beta: 'Beta',
   disclaimer:
     'Angaben ohne Gewähr. Fahrplan- und Echtzeitdaten stammen aus offenen Quellen und können fehlen, verspätet oder falsch sein; Ticketregeln sind vereinfacht. Maßgeblich sind die Auskünfte der Verkehrsunternehmen. Kein Angebot der Deutschen Bahn oder anderer Verkehrsunternehmen.',
@@ -285,6 +288,9 @@ const en: Record<Key, string> = {
   asOfNow: 'As of {time}',
   liteLink: 'Simple view (for e-readers and older browsers)',
   fullLink: 'Detailed view',
+  viewLabel: 'View',
+  viewCompact: 'Reduced',
+  viewDetailed: 'Detailed',
   beta: 'Beta',
   disclaimer:
     'No guarantee of accuracy. Timetable and real-time data come from open sources and may be missing, delayed or wrong; ticket rules are simplified. Information from the transport operators prevails. Not a service of Deutsche Bahn or any other transport operator.',

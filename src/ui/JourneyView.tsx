@@ -36,7 +36,8 @@ import { MissedIcon, VehicleIcon, WalkerIcon, walkPace } from './icons.tsx';
 import { i18n, trackText, type I18n, type Key, type Lang } from './i18n.ts';
 
 /** avatar: Adresse des Fotos (falls vorhanden) */
-const Ctx = createContext<{ api: JourneyApi; i: I18n; shareUrl: (token: string) => string; avatar?: string }>(null as never);
+/** compact: reduzierte Ansicht (ohne Zugnummern und Zwischenhalte) – nur in der geteilten Ansicht umschaltbar */
+const Ctx = createContext<{ api: JourneyApi; i: I18n; shareUrl: (token: string) => string; avatar?: string; compact?: boolean }>(null as never);
 /** Reise in der Oberfläche: eigene (mit Ticket) oder geteilte (ohne Ticketangaben) */
 type AnyTrip = Omit<TripView, 'ticket' | 'dticket'> & { ticket?: Ticket; dticket?: boolean };
 const defaultShareUrl = (token: string) => `${location.origin}/r/${token}`;
@@ -151,7 +152,7 @@ function TransferRow({ tr, walk, active }: { tr: Transfer; walk?: number; active
 
 function LegItem({ l, current, now, onBoard, checkin }: { l: Leg; current: boolean; now: number; onBoard: boolean; checkin?: BoardingEvent }) {
   const i = useI();
-  const { avatar } = useContext(Ctx);
+  const { avatar, compact } = useContext(Ctx);
   const passed = (s: Stopover) => {
     const x = Date.parse(arrTime(s) ?? depTime(s) ?? '');
     return Number.isFinite(x) && x <= now;
@@ -162,7 +163,7 @@ function LegItem({ l, current, now, onBoard, checkin }: { l: Leg; current: boole
         <VehicleIcon mode={l.mode} moving={current && departed(l, now)} />
         <LineBadge l={l} />
         <span class="rb-dir">{l.headsign ? i.t('towards', { d: l.headsign }) : ''}</span>
-        {l.number && isTrain(l.mode) && !(l.line ?? '').includes(l.number) && <span class="rb-muted rb-small">{i.t('train', { n: l.number })}</span>}
+        {!compact && l.number && isTrain(l.mode) && !(l.line ?? '').includes(l.number) && <span class="rb-muted rb-small">{i.t('train', { n: l.number })}</span>}
         {l.cancelled && <span class="rb-late">{i.t('cancelled')}</span>}
         {onBoard ? (
           <span class={`rb-onboard ${avatar ? 'with-photo' : ''}`}>
@@ -172,7 +173,7 @@ function LegItem({ l, current, now, onBoard, checkin }: { l: Leg; current: boole
         ) : checkin ? <span class="rb-muted rb-small">✓ {i.t('checkedIn', { time: i.time(checkin.at) })}</span> : null}
       </div>
       <StopRow s={l.from} kind="dep" mode={l.mode} cls={passed(l.from) ? 'passed' : ''} />
-      {l.stopovers.length > 0 && (
+      {!compact && l.stopovers.length > 0 && (
         <details class="rb-inner" open={current}>
           <summary class="rb-muted rb-small">{l.stopovers.length === 1 ? i.t('stop1') : i.t('stops', { n: l.stopovers.length })}</summary>
           {l.stopovers.map((s, k) => (
@@ -1155,9 +1156,25 @@ export function SharedView({ dataUrl, avatarUrl, lang = 'de', liteUrl, refreshMs
   const i = useMemo(() => i18n(lang), [lang]);
   const [data, setData] = useState<{ trip: SharedTripView; expiresAt: string; sharedBy: string | null; avatar?: string | null } | null>(null);
   const version = data?.avatar ?? null;
+  // Reduziert (Standard) oder detailliert; die Wahl merkt sich nur dieser Browser
+  const [compact, setCompact] = useState(() => {
+    try {
+      return localStorage.getItem('rb-shared-view') !== 'detailed';
+    } catch {
+      return true;
+    }
+  });
+  const choose = (c: boolean) => {
+    setCompact(c);
+    try {
+      localStorage.setItem('rb-shared-view', c ? 'compact' : 'detailed');
+    } catch {
+      /* privat */
+    }
+  };
   const ctx = useMemo(
-    () => ({ api: noApi, i, shareUrl: defaultShareUrl, avatar: version ? `${avatarUrl ?? dataUrl.replace(/\/data$/, '/avatar')}?v=${encodeURIComponent(version)}` : undefined }),
-    [i, version, avatarUrl, dataUrl],
+    () => ({ api: noApi, i, shareUrl: defaultShareUrl, compact, avatar: version ? `${avatarUrl ?? dataUrl.replace(/\/data$/, '/avatar')}?v=${encodeURIComponent(version)}` : undefined }),
+    [i, version, avatarUrl, dataUrl, compact],
   );
   const [state, setState] = useState<'loading' | 'ok' | 'expired' | 'not-found' | 'error'>('loading');
   useTick(30_000);
@@ -1200,6 +1217,14 @@ export function SharedView({ dataUrl, avatarUrl, lang = 'de', liteUrl, refreshMs
         {state === 'error' && <p class="rb-shared-msg">{i.t('unavailable')}</p>}
         {state === 'ok' && data && (
           <>
+            <div class="rb-switch" role="group" aria-label={i.t('viewLabel')}>
+              <button type="button" class={compact ? 'on' : ''} aria-pressed={compact} onClick={() => choose(true)}>
+                {i.t('viewCompact')}
+              </button>
+              <button type="button" class={compact ? '' : 'on'} aria-pressed={!compact} onClick={() => choose(false)}>
+                {i.t('viewDetailed')}
+              </button>
+            </div>
             <TripCard trip={data.trip} canEdit={false} onChanged={load} onReplan={() => {}} />
             <p class="rb-muted rb-small">
               {[data.sharedBy ? i.t('sharedBy', { name: data.sharedBy }) : '', i.t('linkValidUntil', { time: `${i.day(data.expiresAt)} ${i.time(data.expiresAt)}` })]

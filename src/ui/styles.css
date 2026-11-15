@@ -724,6 +724,34 @@
   background: color-mix(in srgb, var(--rb-accent) 10%, transparent);
 }
 
+/* Umschalter Reduziert / Detailliert (geteilte Ansicht) */
+.rb-switch {
+  display: inline-flex;
+  justify-self: start;
+  padding: 3px;
+  gap: 2px;
+  border-radius: 999px;
+  background: var(--rb-line);
+}
+
+.rb-switch button {
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 5px 14px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--rb-muted);
+  cursor: pointer;
+}
+
+.rb-switch button.on {
+  background: var(--rb-card);
+  color: var(--rb-text);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.12);
+}
+
 /* Testfahrt-Hinweis */
 .rb-demo {
   margin: 0;

@@ -24,7 +24,8 @@ as building blocks for your own dashboard, or as a self-hosted Cloudflare app wi
   gemeinsamen Anfang bleiben, danach Live-Abgleich – passt sie weiterhin nicht, erscheinen wieder Alternativen)
 - **Benachrichtigungen** per Web Push (ohne Zusatz-App; auf iPhone/iPad nach „Zum Home-Bildschirm“)
 - **Teilen-Links** für Familie und Freunde: Reise live verfolgen ohne Anmeldung (inkl. „An Bord“, ohne Ticketangaben),
-  gültig bis 2 h nach der tatsächlichen Ankunft, jederzeit widerrufbar; dazu eine einfache Ansicht ohne JavaScript
+  gültig bis 2 h nach der tatsächlichen Ankunft, jederzeit widerrufbar; Umschalter „Reduziert“ (Standard, ohne Zugnummern und
+  Zwischenhalte) / „Detailliert“, die Wahl merkt sich der Browser; dazu eine einfache Ansicht ohne JavaScript
   (alte Browser, Kindle). Gespeichert wird nur ein Hash des Links.
 - **Foto** der reisenden Person an den Reisen und auf Teilen-Links: wird im Browser quadratisch auf 256 px verkleinert und
   neu gespeichert (Standort- und Kameradaten fallen weg), liegt in D1 (`journey_prefs`), jederzeit entfernbar
