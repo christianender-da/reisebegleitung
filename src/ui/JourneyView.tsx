@@ -145,6 +145,7 @@ function TransferRow({ tr, walk, active }: { tr: Transfer; walk?: number; active
 
 function LegItem({ l, current, now, onBoard, checkin }: { l: Leg; current: boolean; now: number; onBoard: boolean; checkin?: BoardingEvent }) {
   const i = useI();
+  const { avatar } = useContext(Ctx);
   const passed = (s: Stopover) => {
     const x = Date.parse(arrTime(s) ?? depTime(s) ?? '');
     return Number.isFinite(x) && x <= now;
@@ -157,7 +158,12 @@ function LegItem({ l, current, now, onBoard, checkin }: { l: Leg; current: boole
         <span class="rb-dir">{l.headsign ? i.t('towards', { d: l.headsign }) : ''}</span>
         {l.number && isTrain(l.mode) && !(l.line ?? '').includes(l.number) && <span class="rb-muted rb-small">{i.t('train', { n: l.number })}</span>}
         {l.cancelled && <span class="rb-late">{i.t('cancelled')}</span>}
-        {onBoard ? <span class="rb-onboard">{i.t('onBoardBadge')}</span> : checkin ? <span class="rb-muted rb-small">✓ {i.t('checkedIn', { time: i.time(checkin.at) })}</span> : null}
+        {onBoard ? (
+          <span class={`rb-onboard ${avatar ? 'with-photo' : ''}`}>
+            {avatar && <img class="rb-onboard-photo" src={avatar} alt="" width={20} height={20} />}
+            {i.t('onBoardBadge')}
+          </span>
+        ) : checkin ? <span class="rb-muted rb-small">✓ {i.t('checkedIn', { time: i.time(checkin.at) })}</span> : null}
       </div>
       <StopRow s={l.from} kind="dep" mode={l.mode} cls={passed(l.from) ? 'passed' : ''} />
       {l.stopovers.length > 0 && (
