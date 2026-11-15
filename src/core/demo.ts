@@ -37,10 +37,13 @@ export const DEMO_SCENES = [
   { key: 'train', at: 41 },
   { key: 'transfer-fast', at: 50 },
   { key: 'missed', at: 60 },
-  { key: 'arrived', at: 100 },
+  { key: 'arrived', at: 130 },
 ] as const;
 
 export const DEMO_SCENE_MS = 60_000;
+
+/** Bei „Übernehmen“ bleiben Bus, Tram, Regionalzug und S-Bahn samt Fußwegen (bis zur Ankunft an der Demo-Messe) */
+export const DEMO_KEEP_LEGS = 7;
 
 export interface DemoScene {
   index: number;

@@ -271,7 +271,23 @@ test('Anschluss platzt: Alternativen, eine Benachrichtigung, Übernehmen', async
   assert.equal(trip.journey.legs[0].line, 'S6');
   assert.equal(trip.journey.legs.length, 1 + alt.options[0].journey.legs.length);
   assert.equal(store.rows[0].alternatives, null);
+  assert.equal(trip.replaced, true);
   assert.equal((await handleJourneyRequest(service, req('/trips/trip1/alternative', { method: 'POST', body: '{"index":0}' }), '/trips/trip1/alternative', ctx)).status, 400);
+
+  // Zurück zur ursprünglichen Verbindung: Check-in in der S6 bleibt, Anschluss passt weiterhin nicht → wieder Alternativen
+  store.rows[0].boarding = { checkins: [{ leg: 0, at: new Date().toISOString() }, { leg: 1, at: new Date().toISOString() }], missed: [] };
+  const back = await handleJourneyRequest(service, req('/trips/trip1/original', { method: 'POST', body: '{}' }), '/trips/trip1/original', ctx);
+  assert.equal(back.status, 200);
+  const orig = (await back.json()).trip;
+  assert.equal(orig.replaced, undefined);
+  assert.deepEqual(
+    orig.journey.legs.map((l: { line?: string }) => l.line),
+    j.legs.map((l) => l.line),
+  );
+  assert.deepEqual(store.rows[0].boarding.checkins.map((e) => e.leg), [0]);
+  assert.equal(store.rows[0].alternatives?.reason, 'connection');
+  // ohne Recht nicht möglich
+  assert.equal((await handleJourneyRequest(service, req('/trips/trip1/original', { method: 'POST', body: '{}' }), '/trips/trip1/original', { ...ctx, canEdit: false })).status, 403);
 });
 
 test('Push-Endpunkte', async () => {

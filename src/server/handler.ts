@@ -7,6 +7,7 @@
  *   DELETE /trips/<id>                                                   (canEdit)
  *   POST   /trips/<id>/boarding  { leg, action: checkin|missed|undo }    (canEdit)
  *   POST   /trips/<id>/alternative  { index }                           (canEdit)
+ *   POST   /trips/<id>/original     zurück zur ursprünglichen Verbindung  (canEdit)
  *   GET    /trips/<id>/shares                                           (canEdit)  → { shares }
  *   POST   /trips/<id>/shares  { label }                                (canEdit)  → { share: { id, token, expiresAt, … } }
  *   DELETE /trips/<id>/shares/<shareId>                                 (canEdit)
@@ -91,6 +92,9 @@ export async function handleJourneyRequest(service: JourneyService, request: Req
         await service.revokeShare(ctx.scope, tripId, decodeURIComponent(parts[3]));
         return json({ ok: true });
       }
+    }
+    if (parts[0] === 'trips' && parts.length === 3 && parts[2] === 'original' && method === 'POST') {
+      return json({ trip: await service.revertTrip(ctx.scope, decodeURIComponent(parts[1])) });
     }
     if (parts[0] === 'trips' && parts.length === 3 && parts[2] === 'alternative' && method === 'POST') {
       return json({ trip: await service.chooseAlternative(ctx.scope, decodeURIComponent(parts[1]), body.index) });

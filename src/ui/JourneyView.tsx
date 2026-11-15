@@ -294,6 +294,7 @@ function TripCard({ trip, canEdit, onChanged, onReplan }: { trip: AnyTrip; canEd
         </p>
       )}
       <Status j={j} now={now} boarding={boarding} />
+      {trip.replaced && <RevertBox trip={trip} canEdit={canEdit} onChanged={onChanged} />}
       {trip.alternatives && <AlternativesBox trip={trip} canEdit={canEdit} onChanged={onChanged} />}
       {canEdit && bs.prompt && !(bs.prompt.kind === 'missed' && trip.alternatives?.options.length) && (
         <BoardingPrompt trip={trip} prompt={bs.prompt} onChanged={onChanged} onReplan={onReplan} />
@@ -532,6 +533,39 @@ function CoverageNote({ option }: { option: AlternativeOption }) {
 }
 
 /** Alternativen, wenn die Reise so nicht mehr klappt (Anschluss weg, Ausfall, Zug verpasst) */
+/** Hinweis „Alternative übernommen“ + Zurück zur ursprünglichen Verbindung */
+function RevertBox({ trip, canEdit, onChanged }: { trip: AnyTrip; canEdit: boolean; onChanged: () => void }) {
+  const { api, i } = useContext(Ctx);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(false);
+
+  async function revert() {
+    if (!confirm(i.t('revertConfirm'))) return;
+    setBusy(true);
+    setError(false);
+    try {
+      await api.revertTrip(trip.id);
+      onChanged();
+    } catch {
+      setError(true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div class="rb-revert rb-small">
+      <span>{i.t('replacedNote')}</span>
+      {canEdit && (
+        <button type="button" class="rb-btn rb-btn-small" disabled={busy} onClick={revert}>
+          {i.t('revert')}
+        </button>
+      )}
+      {error && <span class="rb-error">{i.t('revertFailed')}</span>}
+    </div>
+  );
+}
+
 function AlternativesBox({ trip, canEdit, onChanged }: { trip: AnyTrip; canEdit: boolean; onChanged: () => void }) {
   const { api, i } = useContext(Ctx);
   const [busy, setBusy] = useState(false);

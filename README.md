@@ -20,7 +20,8 @@ as building blocks for your own dashboard, or as a self-hosted Cloudflare app wi
 - Aktualisierung im Hintergrund (Cron jede Minute), auch wenn niemand die Seite offen hat
 - **Alternativen**, sobald ein Anschluss nicht erreichbar ist, ein Zug ausfällt oder ein Zug verpasst wurde – mit
   Hinweis, ob sie mit dem Ticket nutzbar sind (Zugbindung aufgehoben, Deutschlandticket); „Übernehmen“ ersetzt die
-  restliche Reise
+  restliche Reise; **jederzeit zurück zur ursprünglichen Verbindung** („↩ Zurück zur ursprünglichen Verbindung“, Check-ins auf dem
+  gemeinsamen Anfang bleiben, danach Live-Abgleich – passt sie weiterhin nicht, erscheinen wieder Alternativen)
 - **Benachrichtigungen** per Web Push (ohne Zusatz-App; auf iPhone/iPad nach „Zum Home-Bildschirm“)
 - **Teilen-Links** für Familie und Freunde: Reise live verfolgen ohne Anmeldung (inkl. „An Bord“, ohne Ticketangaben),
   gültig bis 2 h nach der tatsächlichen Ankunft, jederzeit widerrufbar; dazu eine einfache Ansicht ohne JavaScript
@@ -33,7 +34,8 @@ as building blocks for your own dashboard, or as a self-hosted Cloudflare app wi
 - **Testhaltestelle**: „Testhaltestelle“ in der Suche wählen (Start oder Ziel) → Testfahrt, die alle Zustände live zeigt und **jede Minute
   die Szene wechselt** (9 Szenen): vor Abfahrt · im Bus · Umstieg gemütlich · Tram · Umstieg zügig · Regionalzug mit Verspätung und
   Gleiswechsel · Umstieg knapp · S-Bahn mit nicht erreichbarem Anschluss und Alternativen (inkl. Fähre, Ticket-Hinweise) · angekommen.
-  Ohne Transitous/IRIS-Abfragen und ohne Benachrichtigungen; Check-ins gelten nur in der laufenden Szene, „Übernehmen“ ändert nichts.
+  Ohne Transitous/IRIS-Abfragen und ohne Benachrichtigungen; Check-ins gelten nur in der laufenden Szene. „Übernehmen“ einer
+  Alternative wirkt (die Szenen laufen mit der neuen Verbindung weiter), „Zurück“ stellt die ursprüngliche wieder her.
   Die Testfahrt bleibt einen Tag (Teilen-Links funktionieren auch).
 
 ## Drei Arten der Nutzung

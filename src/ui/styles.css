@@ -667,6 +667,17 @@
   padding: 24px 0;
 }
 
+/* Alternative übernommen – zurück zur ursprünglichen Verbindung */
+.rb-revert {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--rb-accent) 10%, transparent);
+}
+
 /* Testfahrt-Hinweis */
 .rb-demo {
   margin: 0 0 8px;

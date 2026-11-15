@@ -8,7 +8,10 @@
 import {
   alternativesTrigger,
   applyBoarding,
+  DEMO_KEEP_LEGS,
   DEMO_SCENES,
+  isReplaced,
+  sharedPrefix,
   DEMO_SCENE_MS,
   DEMO_STOP,
   demoAlternativeJourneys,
@@ -78,6 +81,8 @@ export interface TripView {
   transfers: Transfer[];
   refreshedAt: string | null;
   stale?: boolean;
+  /** eine Alternative wurde übernommen – „Zurück zur ursprünglichen Verbindung“ möglich */
+  replaced?: boolean;
   /** Testfahrt ab der Testhaltestelle: aktuelle Szene (wechselt jede Minute) */
   demo?: { scene: number; scenes: number; key: string; next: string };
 }
@@ -290,30 +295,36 @@ export function createJourneyService(opts: JourneyServiceOptions) {
    * Testfahrt: Uhrzeiten so verschoben, dass „jetzt“ in der aktuellen Szene liegt; Alternativen fest vorgegeben.
    * Check-ins gelten nur innerhalb der Szene (danach beginnt die nächste Szene sauber).
    */
-  function demoRecord(r: TripRecord, t: number): { record: TripRecord; demo: NonNullable<TripView['demo']> } {
+  /** Testfahrt: gewählte Alternative (Index in der sortierten Liste) als Einstellung je Reise */
+  const demoChoiceKey = (id: string) => `demo-alt:${id}`;
+
+  async function demoRecord(r: TripRecord, t: number): Promise<{ record: TripRecord; demo: NonNullable<TripView['demo']>; replaced: boolean }> {
     const sc = demoScene(t, Date.parse(r.createdAt) || 0);
-    const journey = demoJourney(sc.start);
+    const original = demoJourney(sc.start);
     const sceneStart = sc.next - DEMO_SCENE_MS;
     const boarding = { checkins: r.boarding.checkins.filter((e) => Date.parse(e.at) >= sceneStart), missed: r.boarding.missed.filter((e) => Date.parse(e.at) >= sceneStart) };
+    const ctx = { ticket: r.ticket, hasDTicket: r.dticket };
+    // Anschluss an den IC ist nie zu schaffen: Zugbindung aufgehoben, Alternativen ab der Demo-Messe
+    const options = demoAlternativeJourneys(sc.start)
+      .map((j) => rateAlternative(j, ctx, { bindingLifted: true, bookedTripIds: [] }))
+      .sort((a, b) => Number(b.covered) - Number(a.covered) || Date.parse(journeyEnd(a.journey) ?? '') - Date.parse(journeyEnd(b.journey) ?? ''));
+    const chosen = options[Number((await store.getPref(r.scope, demoChoiceKey(r.id))) || NaN)];
+    const journey = chosen ? replaceRemainder(original, boarding, DEMO_KEEP_LEGS, chosen.journey).journey : original;
     const trigger = alternativesTrigger(journey, boarding, t);
-    let alternatives: StoredAlternatives | null = null;
-    if (trigger) {
-      const ctx = { ticket: r.ticket, hasDTicket: r.dticket };
-      const lifted = liftedFor(journey, trigger);
-      const options = demoAlternativeJourneys(sc.start)
-        .map((j) => rateAlternative(j, ctx, { bindingLifted: lifted, bookedTripIds: [] }))
-        .sort((a, b) => Number(b.covered) - Number(a.covered) || Date.parse(journeyEnd(a.journey) ?? '') - Date.parse(journeyEnd(b.journey) ?? ''));
-      alternatives = { key: trigger.key, reason: trigger.reason, keepLegs: trigger.keepLegs, origin: trigger.origin, time: trigger.time, line: trigger.line, bindingLifted: lifted, computedAt: new Date(t).toISOString(), options };
-    }
+    const alternatives: StoredAlternatives | null = trigger
+      ? { key: trigger.key, reason: trigger.reason, keepLegs: trigger.keepLegs, origin: trigger.origin, time: trigger.time, line: trigger.line, bindingLifted: liftedFor(journey, trigger), computedAt: new Date(t).toISOString(), options }
+      : null;
     return {
       record: { ...r, journey, boarding, alternatives, refreshedAt: new Date(t).toISOString() },
       demo: { scene: sc.index + 1, scenes: DEMO_SCENES.length, key: sc.key, next: new Date(sc.next).toISOString() },
+      replaced: !!chosen,
     };
   }
 
-  function view({ record: r, stale, demo }: { record: TripRecord; stale?: boolean; demo?: TripView['demo'] }, t: number): TripView {
+  function view({ record: r, stale, demo, replaced }: { record: TripRecord; stale?: boolean; demo?: TripView['demo']; replaced?: boolean }, t: number): TripView {
     return {
       demo,
+      replaced: (replaced ?? (!demo && isReplaced(r.journey, r.plannedJourney))) || undefined,
       id: r.id,
       ticket: r.ticket,
       dticket: r.dticket,
@@ -457,11 +468,12 @@ export function createJourneyService(opts: JourneyServiceOptions) {
       if (t > Date.parse(shareExpiry(r.arriveAt))) return { status: 'expired' };
       let stale = false;
       let demo: TripView['demo'];
-      if (isDemoJourney(r.journey)) ({ record: r, demo } = demoRecord(r, t));
+      let replaced: boolean | undefined;
+      if (isDemoJourney(r.journey)) ({ record: r, demo, replaced } = await demoRecord(r, t));
       else if (refreshDue(r, t)) ({ record: r, stale } = await refresh(r));
       // nach dem Auffrischen kann sich die Ankunft verschoben haben
       if (t > Date.parse(shareExpiry(r.arriveAt))) return { status: 'expired' };
-      const { ticket: _t, dticket: _d, ...trip } = view({ record: r, stale, demo }, t);
+      const { ticket: _t, dticket: _d, ...trip } = view({ record: r, stale, demo, replaced }, t);
       return { status: 'ok', trip, expiresAt: shareExpiry(r.arriveAt), sharedBy: share.sharedBy, avatar: await avatarVersion(share.scope) };
     },
 
@@ -506,7 +518,7 @@ export function createJourneyService(opts: JourneyServiceOptions) {
       const t = Date.now();
       await store.purge(new Date(t - DELETE_AFTER_ARRIVAL_MS).toISOString());
       const rows = await store.list(scope, new Date(t - VISIBLE_AFTER_ARRIVAL_MS).toISOString());
-      return Promise.all(rows.map(async (r) => view(isDemoJourney(r.journey) ? demoRecord(r, t) : refreshDue(r, t) ? await refresh(r) : { record: r }, t)));
+      return Promise.all(rows.map(async (r) => view(isDemoJourney(r.journey) ? await demoRecord(r, t) : refreshDue(r, t) ? await refresh(r) : { record: r }, t)));
     },
 
     /** Check-in, „verpasst“ oder Zurücknehmen für einen Fahrt-Abschnitt */
@@ -518,10 +530,10 @@ export function createJourneyService(opts: JourneyServiceOptions) {
       if (isDemoJourney(r.journey)) {
         // Testfahrt: Check-in gilt für die aktuelle Szene; keine Suche, keine Benachrichtigung
         const t = Date.now();
-        const cur = demoRecord(r, t);
+        const cur = await demoRecord(r, t);
         const boarding = applyBoarding(cur.record.journey, cur.record.boarding, leg, action);
         await store.setBoarding(r.id, boarding);
-        return view(demoRecord({ ...r, boarding }, t), t);
+        return view(await demoRecord({ ...r, boarding }, t), t);
       }
       const boarding = applyBoarding(r.journey, r.boarding, leg, action);
       await store.setBoarding(r.id, boarding);
@@ -533,8 +545,13 @@ export function createJourneyService(opts: JourneyServiceOptions) {
     async chooseAlternative(scope: string, id: string, index: unknown): Promise<TripView> {
       const r = await store.get(scope, id);
       if (!r) throw new JourneyError('not-found');
-      // Testfahrt: Übernehmen ändert nichts (die Szenen laufen weiter)
-      if (isDemoJourney(r.journey)) return view(demoRecord(r, Date.now()), Date.now());
+      if (isDemoJourney(r.journey)) {
+        // Testfahrt: Wahl merken; die Szenen laufen mit der neuen Verbindung weiter
+        const cur = await demoRecord(r, Date.now());
+        if (typeof index !== 'number' || !cur.record.alternatives?.options[index]) throw new JourneyError('bad-request');
+        await store.setPref(scope, demoChoiceKey(id), String(index));
+        return view(await demoRecord(r, Date.now()), Date.now());
+      }
       const option = typeof index === 'number' ? r.alternatives?.options[index] : undefined;
       if (!r.alternatives || !option) throw new JourneyError('bad-request');
       const { journey, boarding } = replaceRemainder(r.journey, r.boarding, r.alternatives.keepLegs, option.journey);
@@ -544,6 +561,35 @@ export function createJourneyService(opts: JourneyServiceOptions) {
       await store.setBoarding(r.id, boarding);
       await store.setAlternatives(r.id, null);
       return view({ record: { ...r, journey, boarding, arriveAt, refreshedAt: t, alternatives: null } }, Date.now());
+    },
+
+    /**
+     * Zurück zur ursprünglich gewählten Verbindung (nach „Übernehmen“ einer Alternative). Check-ins auf dem gemeinsamen
+     * Anfang bleiben; danach Live-Abgleich – passt die Verbindung weiterhin nicht, erscheinen wieder Alternativen.
+     */
+    async revertTrip(scope: string, id: string): Promise<TripView> {
+      const r = await store.get(scope, id);
+      if (!r) throw new JourneyError('not-found');
+      const t = Date.now();
+      if (isDemoJourney(r.journey)) {
+        await store.setPref(scope, demoChoiceKey(id), '');
+        return view(await demoRecord(r, t), t);
+      }
+      if (!isReplaced(r.journey, r.plannedJourney)) return view({ record: r }, t);
+      const keep = sharedPrefix(r.journey, r.plannedJourney);
+      const boarding = { checkins: r.boarding.checkins.filter((e) => e.leg < keep), missed: r.boarding.missed.filter((e) => e.leg < keep) };
+      const journey = r.plannedJourney;
+      const arriveAt = journeyEnd(journey) ?? r.arriveAt;
+      await store.updateLive(r.id, journey, arriveAt, nowIso());
+      await store.setBoarding(r.id, boarding);
+      await store.setAlternatives(r.id, null);
+      let next: { record: TripRecord; stale?: boolean } = { record: { ...r, journey, boarding, arriveAt, alternatives: null } };
+      try {
+        next = await refresh(next.record);
+      } catch {
+        next = { ...next, stale: true };
+      }
+      return view(next, t);
     },
 
     /** öffentlicher VAPID-Schlüssel (applicationServerKey) oder null, wenn Push nicht eingerichtet ist */

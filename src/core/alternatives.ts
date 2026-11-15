@@ -96,6 +96,24 @@ export function liftedFor(j: Journey, trigger: AlternativeTrigger): boolean {
 }
 
 /** Restliche Reise durch die gewählte Alternative ersetzen; Check-ins der ersetzten Abschnitte entfallen */
+/** Kennung eines Abschnitts (Fahrt bzw. Fußweg) zum Vergleich zweier Verbindungen */
+function legKey(l: Journey['legs'][number]): string {
+  return l.kind === 'ride' ? (l.tripId ?? `${l.line}|${l.from.stop.id}|${l.from.plannedDeparture}`) : `walk|${l.from.stop.id}|${l.to.stop.id}`;
+}
+
+/** Wie viele Abschnitte am Anfang stimmen überein? */
+export function sharedPrefix(a: Journey, b: Journey): number {
+  let k = 0;
+  while (k < a.legs.length && k < b.legs.length && legKey(a.legs[k]) === legKey(b.legs[k])) k++;
+  return k;
+}
+
+/** Wurde (per Alternative) eine andere Verbindung übernommen als ursprünglich gewählt? (Vergleich der Fahrten) */
+export function isReplaced(current: Journey, original: Journey): boolean {
+  const rides = (j: Journey) => j.legs.filter((l) => l.kind === 'ride').map(legKey).join('>');
+  return rides(current) !== rides(original);
+}
+
 export function replaceRemainder(j: Journey, boarding: Boarding, keepLegs: number, alt: Journey): { journey: Journey; boarding: Boarding } {
   const journey: Journey = { ...j, legs: [...j.legs.slice(0, keepLegs), ...alt.legs] };
   const b: Boarding = {

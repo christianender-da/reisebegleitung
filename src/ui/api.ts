@@ -33,6 +33,8 @@ export interface JourneyApi {
   deleteTrip(id: string): Promise<void>;
   board(id: string, leg: number, action: 'checkin' | 'missed' | 'undo'): Promise<{ trip: TripView }>;
   chooseAlternative(id: string, index: number): Promise<{ trip: TripView }>;
+  /** zurück zur ursprünglichen Verbindung */
+  revertTrip(id: string): Promise<{ trip: TripView }>;
   shares(id: string): Promise<{ shares: ShareInfo[] }>;
   createShare(id: string, label: string): Promise<{ share: ShareInfo & { token: string } }>;
   revokeShare(id: string, shareId: string): Promise<void>;
@@ -83,6 +85,7 @@ export function createJourneyApi(base: string, opts: ApiOptions = {}): JourneyAp
     },
     board: (id, leg, action) => call(`/trips/${encodeURIComponent(id)}/boarding`, { body: { leg, action } }),
     chooseAlternative: (id, index) => call(`/trips/${encodeURIComponent(id)}/alternative`, { body: { index } }),
+    revertTrip: (id) => call(`/trips/${encodeURIComponent(id)}/original`, { body: {} }),
     shares: (id) => call(`/trips/${encodeURIComponent(id)}/shares`),
     createShare: (id, label) => call(`/trips/${encodeURIComponent(id)}/shares`, { body: { label } }),
     revokeShare: async (id, shareId) => {
