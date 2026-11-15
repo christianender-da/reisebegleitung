@@ -30,7 +30,7 @@ function statusText(i: I18n, j: Journey, b: Parameters<typeof progress>[2], now:
   const ph = progress(j, now, b).phase;
   if (ph.kind === 'before') {
     const l = j.legs[ph.legIndex];
-    return { text: i.t('departsAt', { time: i.time(ph.departsAt) }), sub: [l.line, l.from.stop.name].filter(Boolean).join(' · ') };
+    return { text: i.t('departsAt', { time: i.time(ph.departsAt) }), sub: [lineName(l.line, l.mode, i.lang), l.from.stop.name].filter(Boolean).join(' · ') };
   }
   if (ph.kind === 'riding') {
     const at = arrTime(ph.next) ?? depTime(ph.next);
@@ -43,7 +43,8 @@ function statusText(i: I18n, j: Journey, b: Parameters<typeof progress>[2], now:
   return { text: i.t('arrived', { time: i.time(ph.arrivedAt) }), sub: '' };
 }
 
-export function renderSharedLite(result: SharedResult, lang: Lang = 'de', opts: { refreshSeconds?: number; now?: number } = {}): string {
+/** opts.fullUrl: Adresse der ausführlichen Ansicht (z. B. /r/<token>) – wird als Link „Ausführliche Ansicht“ angezeigt */
+export function renderSharedLite(result: SharedResult, lang: Lang = 'de', opts: { refreshSeconds?: number; now?: number; fullUrl?: string } = {}): string {
   const i = i18n(lang);
   const now = opts.now ?? Date.now();
   const refresh = opts.refreshSeconds ?? 120;
@@ -115,6 +116,7 @@ td.p{white-space:nowrap;text-align:right}
 <body>
 <h1>${esc(title)}</h1>
 ${body}
+${opts.fullUrl ? `<p class="small"><a href="${esc(opts.fullUrl)}">${esc(i.t('fullLink'))}</a></p>` : ''}
 <p class="beta">${esc(i.t('beta'))} – ${esc(i.t('disclaimer'))} ${esc(i.t('sources'))}: ${esc(TRANSITOUS_SOURCES)}</p>
 </body>
 </html>`;

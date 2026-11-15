@@ -192,16 +192,28 @@
 
 .rb-root {
   display: grid;
-  gap: 14px;
+  gap: 20px;
 }
 
 .rb-trip {
   background: var(--rb-bg);
   border: 1px solid var(--rb-line);
   border-radius: 12px;
-  padding: 12px 14px;
+  padding: 16px;
   display: grid;
-  gap: 8px;
+  gap: 16px;
+}
+
+/* Status, Ankunft und Fortschrittsbalken bilden einen Block */
+.rb-status {
+  display: grid;
+  gap: 6px;
+}
+
+/* Knöpfe unten (Teilen / Reise löschen) durch eine Linie vom Reiseverlauf getrennt */
+.rb-trip > .rb-row:last-child {
+  padding-top: 12px;
+  border-top: 1px solid var(--rb-line);
 }
 
 .rb-head {
@@ -272,14 +284,26 @@
 .rb-legs {
   list-style: none;
   margin: 0;
-  padding: 0;
+  padding: 12px 0 0;
+  border-top: 1px solid var(--rb-line);
   display: grid;
-  gap: 6px;
+  gap: 2px;
+}
+
+/* Abschnitt „Verbindung“ (Überschrift aus data-title) */
+.rb-legs::before {
+  content: attr(data-title);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--rb-muted);
+  margin-bottom: 6px;
 }
 
 .rb-leg {
   border-left: 3px solid var(--rb-line);
-  padding: 4px 0 4px 10px;
+  padding: 8px 0 8px 12px;
 }
 
 .rb-leg.current {
@@ -295,7 +319,7 @@
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
-  margin-bottom: 4px;
+  margin-bottom: 8px;
 }
 
 .rb-dir {
@@ -357,7 +381,7 @@
   grid-template-columns: 5.6em 1fr auto;
   gap: 2px 8px;
   align-items: baseline;
-  padding: 2px 0;
+  padding: 3px 0;
   font-size: 0.95rem;
 }
 
@@ -416,7 +440,7 @@
   align-items: center;
   font-size: 0.85rem;
   color: var(--rb-muted);
-  padding: 2px 0 2px 13px;
+  padding: 10px 0 10px 13px;
 }
 
 .rb-transfer .rb-dot {
@@ -484,6 +508,11 @@
   display: grid;
   gap: 2px;
   font-variant-numeric: tabular-nums;
+}
+
+/* Uhrzeit und Verspätung bleiben zusammen; umgebrochen wird höchstens am Pfeil */
+.rb-nowrap {
+  white-space: nowrap;
 }
 
 .rb-result-lines {
@@ -695,9 +724,177 @@
   background: color-mix(in srgb, var(--rb-accent) 10%, transparent);
 }
 
+/* Umschalter Reduziert / Detailliert (geteilte Ansicht) */
+.rb-switch {
+  display: inline-flex;
+  justify-self: start;
+  padding: 3px;
+  gap: 2px;
+  border-radius: 999px;
+  background: var(--rb-line);
+}
+
+.rb-switch button {
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 5px 14px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--rb-muted);
+  cursor: pointer;
+}
+
+.rb-switch button.on {
+  background: var(--rb-card);
+  color: var(--rb-text);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.12);
+}
+
+/* Reduzierte Ansicht: Strecke mit aktueller Position */
+.rb-where {
+  list-style: none;
+  margin: 0;
+  padding: 12px 0 0;
+  border-top: 1px solid var(--rb-line);
+  display: grid;
+}
+
+.rb-where::before {
+  content: attr(data-title);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--rb-muted);
+  margin-bottom: 8px;
+}
+
+.rb-where-stop {
+  display: grid;
+  grid-template-columns: 22px 1fr auto;
+  align-items: center;
+  column-gap: 8px;
+  min-height: 32px;
+}
+
+.rb-where-dot {
+  justify-self: center;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid var(--rb-accent);
+  background: var(--rb-card);
+}
+
+.rb-where-stop.passed .rb-where-dot {
+  background: var(--rb-accent);
+}
+
+.rb-where-stop.here .rb-where-dot {
+  width: 16px;
+  height: 16px;
+  background: var(--rb-accent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--rb-accent) 25%, transparent);
+}
+
+.rb-where-name {
+  font-weight: 600;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.rb-where-time {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.rb-where-extra {
+  grid-column: 2 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  color: var(--rb-muted);
+  padding-bottom: 4px;
+}
+
+/* Fahrt zwischen zwei Halten: senkrechte Linie, Fahrzeug, bei aktueller Fahrt eigener Fortschritt */
+.rb-where-ride {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin-left: 10px;
+  padding: 10px 0 10px 18px;
+  border-left: 3px solid var(--rb-line);
+  color: var(--rb-muted);
+  font-size: 0.9rem;
+}
+
+.rb-where-ride.passed {
+  border-left-color: var(--rb-accent);
+}
+
+.rb-where-ride.current {
+  border-left-color: var(--rb-accent);
+  color: var(--rb-text);
+  font-weight: 600;
+  padding: 14px 0 14px 18px;
+}
+
+.rb-where-progress {
+  flex-basis: 100%;
+  display: grid;
+  gap: 4px;
+  font-weight: 400;
+}
+
+.rb-where-ride .rb-where-line {
+  min-width: 0;
+}
+
+.rb-where-stop.passed .rb-where-name,
+.rb-where-stop.passed .rb-where-time {
+  color: var(--rb-muted);
+}
+
+.rb-where-change {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.rb-where-change.here {
+  color: var(--rb-text);
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.rb-where-change.here .rb-walker {
+  width: 40px;
+  height: 35px;
+}
+
+/* Anschluss weg (reduzierte Ansicht statt der Alternativen-Liste) */
+.rb-alt-note {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--rb-danger);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--rb-danger) 6%, var(--rb-card));
+  color: var(--rb-danger);
+  font-weight: 700;
+}
+
 /* Testfahrt-Hinweis */
 .rb-demo {
-  margin: 0 0 8px;
+  margin: 0;
   padding: 6px 10px;
   border-radius: 8px;
   background: color-mix(in srgb, var(--rb-busy) 14%, transparent);

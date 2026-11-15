@@ -175,7 +175,7 @@ app.get('/r/:token/lite', async (c) => {
   if (!s) return c.text('Not configured', 503);
   const result = await s.shared(c.req.param('token'));
   if (result.status === 'not-found' && (await limited(c))) return c.text('Too many requests', 429);
-  return c.body(renderSharedLite(result, langOf(c)), result.status === 'ok' ? 200 : result.status === 'expired' ? 410 : 404, {
+  return c.body(renderSharedLite(result, langOf(c), { fullUrl: `/r/${encodeURIComponent(c.req.param('token'))}` }), result.status === 'ok' ? 200 : result.status === 'expired' ? 410 : 404, {
     'Content-Type': 'text/html; charset=utf-8',
     'Cache-Control': 'no-store',
     // nur Inline-CSS, kein Skript (alte Browser, Kindle)
