@@ -35,6 +35,8 @@ export interface Stopover {
   departure?: string;
   plannedTrack?: string;
   track?: string;
+  /** Herkunft des Gleises, wenn nicht aus der Hauptquelle (z. B. DB IRIS) */
+  trackSource?: 'iris';
   cancelled?: boolean;
 }
 

@@ -1,3 +1,5 @@
+import type { Mode } from '../core/types.ts';
+
 export type Lang = 'de' | 'en';
 
 const de = {
@@ -8,6 +10,9 @@ const de = {
   inMin: 'in {n} min',
   cancelled: 'fällt aus',
   platform: 'Gl. {p}',
+  stand: 'Steig {p}',
+  depTrack: 'ab {t}',
+  arrTrack: 'an {t}',
   searchFailed: 'Suche gerade nicht möglich.',
   noHits: 'Keine Treffer.',
   none: 'Keine Reise geplant.',
@@ -128,6 +133,9 @@ const en: Record<Key, string> = {
   inMin: 'in {n} min',
   cancelled: 'cancelled',
   platform: 'Pl. {p}',
+  stand: 'Stop {p}',
+  depTrack: 'from {t}',
+  arrTrack: 'to {t}',
   searchFailed: 'Search currently unavailable.',
   noHits: 'No matches.',
   none: 'No journey planned.',
@@ -259,4 +267,10 @@ export function i18n(lang: Lang): I18n {
     time: (iso) => new Date(iso).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin' }),
     day: (iso) => new Date(iso).toLocaleDateString(locale, { weekday: 'short', day: '2-digit', month: '2-digit', timeZone: 'Europe/Berlin' }),
   };
+}
+
+/** Züge/U-Bahn: Gleis; Tram, Bus, Fernbus, Fähre: Steig */
+export function trackText(i: I18n, mode: Mode | undefined, p: string): string {
+  const rail = !mode || ['highspeed', 'longdistance', 'night', 'regional', 'suburban', 'subway'].includes(mode);
+  return i.t(rail ? 'platform' : 'stand', { p });
 }

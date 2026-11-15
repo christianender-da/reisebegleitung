@@ -3,8 +3,8 @@
  * große Schrift, lädt sich selbst neu. Die einbettende App liefert sie mit
  * `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'` aus (nur Inline-CSS, kein Skript).
  */
-import { arrDelay, arrTime, boardingState, depDelay, depTime, journeyEnds, progress, TRANSITOUS_SOURCES, transfers, type Journey, type Stopover } from '../core/index.ts';
-import { i18n, type I18n, type Lang } from '../ui/i18n.ts';
+import { arrDelay, arrTime, boardingState, depDelay, depTime, journeyEnds, progress, TRANSITOUS_SOURCES, transfers, type Journey, type Mode, type Stopover } from '../core/index.ts';
+import { i18n, trackText, type I18n, type Lang } from '../ui/i18n.ts';
 import type { SharedResult } from './service.ts';
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
@@ -14,11 +14,11 @@ function delay(d: number | undefined) {
   return d > 0 ? ` <b>+${d}</b>` : '';
 }
 
-function stopLine(i: I18n, s: Stopover, kind: 'dep' | 'arr') {
+function stopLine(i: I18n, s: Stopover, kind: 'dep' | 'arr', mode?: Mode) {
   const planned = kind === 'dep' ? s.plannedDeparture : s.plannedArrival;
   const tr = s.track ?? s.plannedTrack;
   const changed = s.track && s.plannedTrack && s.track !== s.plannedTrack;
-  return `<tr><td class="t">${planned ? i.time(planned) : '–'}${delay(kind === 'dep' ? depDelay(s) : arrDelay(s))}</td><td>${esc(s.stop.name)}${s.cancelled ? ` (${esc(i.t('cancelled'))})` : ''}</td><td class="p">${tr ? (changed ? '<b>' : '') + esc(i.t('platform', { p: tr })) + (changed ? '</b>' : '') : ''}</td></tr>`;
+  return `<tr><td class="t">${planned ? i.time(planned) : '–'}${delay(kind === 'dep' ? depDelay(s) : arrDelay(s))}</td><td>${esc(s.stop.name)}${s.cancelled ? ` (${esc(i.t('cancelled'))})` : ''}</td><td class="p">${tr ? (changed ? '<b>' : '') + esc(trackText(i, mode, tr)) + (changed ? '</b>' : '') : ''}</td></tr>`;
 }
 
 function statusText(i: I18n, j: Journey, b: Parameters<typeof progress>[2], now: number): { text: string; sub: string } {
@@ -69,7 +69,7 @@ export function renderSharedLite(result: SharedResult, lang: Lang = 'de', opts: 
       }
       const onBoard = boardingState(j, trip.boarding, now).onBoard === k;
       rows.push(
-        `<div class="leg"><p class="line"><b>${esc(l.line ?? '?')}</b>${l.headsign ? ` → ${esc(l.headsign)}` : ''}${l.cancelled ? ` <b>(${esc(i.t('cancelled'))})</b>` : ''}${onBoard ? ` <span class="tag">${esc(i.t('onBoardBadge'))}</span>` : ''}</p><table>${stopLine(i, l.from, 'dep')}${stopLine(i, l.to, 'arr')}</table></div>`,
+        `<div class="leg"><p class="line"><b>${esc(l.line ?? '?')}</b>${l.headsign ? ` → ${esc(l.headsign)}` : ''}${l.cancelled ? ` <b>(${esc(i.t('cancelled'))})</b>` : ''}${onBoard ? ` <span class="tag">${esc(i.t('onBoardBadge'))}</span>` : ''}</p><table>${stopLine(i, l.from, 'dep', l.mode)}${stopLine(i, l.to, 'arr', l.mode)}</table></div>`,
       );
     });
     const arr = p.plannedArrival ? i.time(p.plannedArrival) : '–';

@@ -17,7 +17,9 @@
     // z. B. "https://github.com/<du>/reisebegleitung" oder "reise@example.org". Ohne Kontakt keine Fahrplandaten.
     "CONTACT": "",
     // optional: dein Name für Empfänger von Teilen-Links („Geteilt von …“)
-    "OWNER_NAME": ""
+    "OWNER_NAME": "",
+    // "1": fehlende Zuggleise (oft bei Regionalzügen/S-Bahn) aus DB IRIS ergänzen – inoffiziell, ohne Key; "0" schaltet ab
+    "IRIS_PLATFORMS": "1"
   },
   "d1_databases": [
     {
