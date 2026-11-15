@@ -52,6 +52,8 @@ export interface DemoScene {
   start: number;
   /** wann die nächste Szene beginnt (ms) */
   next: number;
+  /** Beginn der laufenden Runde (Szene 1) – Check-ins und übernommene Alternativen gelten bis zum Ende der Runde */
+  round: number;
 }
 
 /**
@@ -62,8 +64,9 @@ export function demoScene(now: number, since = 0): DemoScene {
   const minute = Math.floor(now / DEMO_SCENE_MS);
   const n = DEMO_SCENES.length;
   const index = (((minute - Math.floor(since / DEMO_SCENE_MS)) % n) + n) % n;
+  const round = (minute - index) * DEMO_SCENE_MS;
   const s = DEMO_SCENES[index];
-  return { index, key: s.key, start: minute * DEMO_SCENE_MS - s.at * 60_000, next: (minute + 1) * DEMO_SCENE_MS };
+  return { index, key: s.key, start: minute * DEMO_SCENE_MS - s.at * 60_000, next: (minute + 1) * DEMO_SCENE_MS, round };
 }
 
 const iso = (start: number, min: number) => new Date(start + min * 60_000).toISOString();

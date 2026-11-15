@@ -12,7 +12,6 @@ import {
   DEMO_SCENES,
   isReplaced,
   sharedPrefix,
-  DEMO_SCENE_MS,
   DEMO_STOP,
   demoAlternativeJourneys,
   demoJourney,
@@ -293,7 +292,7 @@ export function createJourneyService(opts: JourneyServiceOptions) {
 
   /**
    * Testfahrt: Uhrzeiten so verschoben, dass „jetzt“ in der aktuellen Szene liegt; Alternativen fest vorgegeben.
-   * Check-ins gelten nur innerhalb der Szene (danach beginnt die nächste Szene sauber).
+   * Check-ins und eine übernommene Alternative gelten für die laufende Runde (9 Szenen); mit Szene 1 beginnt alles neu.
    */
   /** Testfahrt: gewählte Alternative (Index in der sortierten Liste) als Einstellung je Reise */
   const demoChoiceKey = (id: string) => `demo-alt:${id}`;
@@ -301,14 +300,15 @@ export function createJourneyService(opts: JourneyServiceOptions) {
   async function demoRecord(r: TripRecord, t: number): Promise<{ record: TripRecord; demo: NonNullable<TripView['demo']>; replaced: boolean }> {
     const sc = demoScene(t, Date.parse(r.createdAt) || 0);
     const original = demoJourney(sc.start);
-    const sceneStart = sc.next - DEMO_SCENE_MS;
-    const boarding = { checkins: r.boarding.checkins.filter((e) => Date.parse(e.at) >= sceneStart), missed: r.boarding.missed.filter((e) => Date.parse(e.at) >= sceneStart) };
+    const boarding = { checkins: r.boarding.checkins.filter((e) => Date.parse(e.at) >= sc.round), missed: r.boarding.missed.filter((e) => Date.parse(e.at) >= sc.round) };
     const ctx = { ticket: r.ticket, hasDTicket: r.dticket };
     // Anschluss an den IC ist nie zu schaffen: Zugbindung aufgehoben, Alternativen ab der Demo-Messe
     const options = demoAlternativeJourneys(sc.start)
       .map((j) => rateAlternative(j, ctx, { bindingLifted: true, bookedTripIds: [] }))
       .sort((a, b) => Number(b.covered) - Number(a.covered) || Date.parse(journeyEnd(a.journey) ?? '') - Date.parse(journeyEnd(b.journey) ?? ''));
-    const chosen = options[Number((await store.getPref(r.scope, demoChoiceKey(r.id))) || NaN)];
+    // gespeichert als „<Index>@<Zeitpunkt>“
+    const [idx, when] = ((await store.getPref(r.scope, demoChoiceKey(r.id))) ?? '').split('@');
+    const chosen = idx && Date.parse(when) >= sc.round ? options[Number(idx)] : undefined;
     const journey = chosen ? replaceRemainder(original, boarding, DEMO_KEEP_LEGS, chosen.journey).journey : original;
     const trigger = alternativesTrigger(journey, boarding, t);
     const alternatives: StoredAlternatives | null = trigger
@@ -549,7 +549,7 @@ export function createJourneyService(opts: JourneyServiceOptions) {
         // Testfahrt: Wahl merken; die Szenen laufen mit der neuen Verbindung weiter
         const cur = await demoRecord(r, Date.now());
         if (typeof index !== 'number' || !cur.record.alternatives?.options[index]) throw new JourneyError('bad-request');
-        await store.setPref(scope, demoChoiceKey(id), String(index));
+        await store.setPref(scope, demoChoiceKey(id), `${index}@${nowIso()}`);
         return view(await demoRecord(r, Date.now()), Date.now());
       }
       const option = typeof index === 'number' ? r.alternatives?.options[index] : undefined;

@@ -134,7 +134,8 @@ test('Testfahrt im Service: ohne Transitous, ohne IRIS, nicht im Hintergrund', a
   assert.equal(v.alternatives?.keepLegs, DEMO_KEEP_LEGS);
 
   // Check-in, Übernehmen, zurück: ohne Suche
-  await service.board('w1', id, 0, 'checkin');
+  const checked = await service.board('w1', id, 0, 'checkin');
+  assert.equal(checked.boarding.checkins.length, 1);
   const taken = await service.chooseAlternative('w1', id, 0);
   assert.equal(taken.replaced, true);
   assert.equal(taken.alternatives, null, 'mit der Alternative passt der Anschluss');

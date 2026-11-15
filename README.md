@@ -34,7 +34,7 @@ as building blocks for your own dashboard, or as a self-hosted Cloudflare app wi
 - **Testhaltestelle**: „Testhaltestelle“ in der Suche wählen (Start oder Ziel) → Testfahrt, die alle Zustände live zeigt und **jede Minute
   die Szene wechselt** (9 Szenen): vor Abfahrt · im Bus · Umstieg gemütlich · Tram · Umstieg zügig · Regionalzug mit Verspätung und
   Gleiswechsel · Umstieg knapp · S-Bahn mit nicht erreichbarem Anschluss und Alternativen (inkl. Fähre, Ticket-Hinweise) · angekommen.
-  Ohne Transitous/IRIS-Abfragen und ohne Benachrichtigungen; Check-ins gelten nur in der laufenden Szene. „Übernehmen“ einer
+  Ohne Transitous/IRIS-Abfragen und ohne Benachrichtigungen; Check-ins gelten für die laufende Runde (mit Szene 1 beginnt alles neu). „Übernehmen“ einer
   Alternative wirkt (die Szenen laufen mit der neuen Verbindung weiter), „Zurück“ stellt die ursprüngliche wieder her.
   Die Testfahrt bleibt einen Tag (Teilen-Links funktionieren auch).
 
