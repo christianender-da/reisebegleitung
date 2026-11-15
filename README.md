@@ -156,6 +156,20 @@ const { journey: live } = await refreshJourney(journey, (tripId) => client.trip(
 console.log(progress(live).phase, transfers(live));
 ```
 
+## App-Icon
+
+Quelle ist `app/web/public/icon.svg` (Zug mit Strecke und Ziel-Pin, 512 × 512, vollflächiger Hintergrund – Ecken rundet das System).
+**iOS nimmt für den Home-Bildschirm kein SVG**, sondern nur `apple-touch-icon.png` (180 × 180, ohne Transparenz); fehlt es, zeigt
+das iPhone ein verkleinertes Bild der Seite. Das Manifest nutzt `icon-192.png`, `icon-512.png` und `icon-maskable-512.png`
+(Inhalt in der sicheren Zone, 80 %), Benachrichtigungen `icon-192.png`. Nach einer Änderung am SVG die PNGs neu erzeugen:
+
+```bash
+npx -y playwright@1 install chromium   # einmalig
+node scripts/render-icons.mjs
+```
+
+Ein schon abgelegtes Home-Bildschirm-Symbol übernimmt ein neues Icon erst nach Entfernen und erneutem „Zum Home-Bildschirm“.
+
 ## Nutzungsregeln von Transitous
 
 Transitous wird von Freiwilligen betrieben. Wer `api.transitous.org` nutzt, muss die
