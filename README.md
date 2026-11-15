@@ -140,7 +140,7 @@ export default { fetch, scheduled: (_e, env, ctx) => ctx.waitUntil(service.refre
 Benachrichtigungen: `createJourneyService({ …, push: { privateJwk: env.VAPID_PRIVATE_JWK, subject: 'mailto:…' } })` und
 im Service Worker der Seite `push`/`notificationclick` behandeln (Vorlage: `app/web/public/sw.js`).
 
-Teilen-Links: `handleSharedRequest(service, token)` (JSON) und `renderSharedLite(await service.shared(token), 'de')` (HTML ohne
+Teilen-Links: `handleSharedRequest(service, token)` (JSON) und `renderSharedLite(await service.shared(token), 'de', { fullUrl: '/r/' + token })` (HTML ohne
 JavaScript, mit `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'` ausliefern) unter einem öffentlichen Pfad
 einhängen, z. B. `/r/<token>/data` und `/r/<token>/lite`; die Seite `/r/<token>` rendert `<SharedView dataUrl=… />`.
 Das Foto zum Link liefert `handleSharedAvatar(service, token)`, z. B. unter `/r/<token>/avatar` (Standardadresse von `SharedView`).

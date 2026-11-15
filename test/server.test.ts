@@ -354,7 +354,8 @@ test('Teilen-Links: anlegen, ansehen ohne Ticket, Ablauf 2 h nach Ankunft, wider
   assert.equal(data.trip.boarding.checkins[0].leg, 0);
   assert.equal(data.trip.progress.phase.onBoard, true);
 
-  const html = renderSharedLite(await service.shared(share.token), 'de');
+  const html = renderSharedLite(await service.shared(share.token), 'de', { fullUrl: `/r/${share.token}` });
+  assert.ok(html.includes(`<a href="/r/${share.token}">Ausführliche Ansicht</a>`), 'Link zurück zur ausführlichen Ansicht');
   assert.match(html, /<title>Darmstadt Hbf → Berlin &lt;Hbf&gt;<\/title>/);
   assert.match(html, /An Bord: S6/);
   assert.match(html, /meta http-equiv="refresh"/);
