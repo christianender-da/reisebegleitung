@@ -1188,3 +1188,96 @@
     display: none;
   }
 }
+
+/* ---------- Status-Kopf (Vorschlag): Kachel mit Icon + Überschrift, darunter Gesamtstrecke ---------- */
+.rb-state {
+  flex-wrap: nowrap;
+  gap: 12px;
+}
+
+.rb-state-tile {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--rb-muted) 14%, transparent);
+}
+
+.rb-state-busy .rb-state-tile {
+  background: color-mix(in srgb, var(--rb-busy) 18%, transparent);
+}
+
+.rb-state-warn .rb-state-tile {
+  background: color-mix(in srgb, var(--rb-danger) 14%, transparent);
+}
+
+.rb-state-on .rb-state-tile {
+  background: color-mix(in srgb, var(--rb-on) 16%, transparent);
+}
+
+.rb-state-tile .rb-ico {
+  width: 44px;
+  height: 25px;
+}
+
+.rb-state-tile .rb-walker {
+  width: 34px;
+  height: 30px;
+}
+
+.rb-state-tile .rb-gag {
+  width: 36px;
+  height: 36px;
+}
+
+.rb-state-main {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.rb-state-main .rb-state-text {
+  line-height: 1.2;
+}
+
+.rb-state-main .rb-state-sub {
+  padding-left: 0;
+}
+
+.rb-span {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  column-gap: 10px;
+  row-gap: 2px;
+  font-variant-numeric: tabular-nums;
+}
+
+.rb-span-time {
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.rb-span-names {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 0.8rem;
+  color: var(--rb-muted);
+}
+
+.rb-span-names > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rb-span-time.end,
+.rb-span .end {
+  text-align: right;
+}
+

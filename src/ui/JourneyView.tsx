@@ -206,9 +206,14 @@ function Status({ j, now, boarding }: { j: Journey; now: number; boarding: Board
     const l = j.legs[ph.legIndex];
     kind = 'off';
     icon = <VehicleIcon mode={l.mode} moving={false} />;
-    text = i.t('departsAt', { time: when(i, ph.departsAt) });
+    // Tag nicht in die Überschrift, sondern davor in die zweite Zeile („Morgen · RB25 ab Merseburg Hbf · Gl. 2“)
+    const today = berlinDay(ph.departsAt) === berlinDay(now);
+    const tomorrow = berlinDay(ph.departsAt) === berlinDay(now + 86_400_000);
+    text = today ? i.t('departsAt', { time: when(i, ph.departsAt) }) : i.t('departsAt', { time: i.time(ph.departsAt) });
     const tr = l.from.track ?? l.from.plannedTrack;
-    sub = [lineName(l.line, l.mode, i.lang), l.from.stop.name, tr ? trackText(i, l.mode, tr) : ''].filter(Boolean).join(' · ');
+    sub = [today ? '' : tomorrow ? i.t('tomorrow') : i.day(ph.departsAt), i.t('lineFrom', { line: lineName(l.line, l.mode, i.lang), stop: l.from.stop.name }), tr ? trackText(i, l.mode, tr) : '']
+      .filter(Boolean)
+      .join(' · ');
   } else if (ph.kind === 'riding') {
     kind = 'busy';
     // eingestiegen, aber noch nicht abgefahren → Fahrzeug steht still
@@ -235,21 +240,39 @@ function Status({ j, now, boarding }: { j: Journey; now: number; boarding: Board
     text = i.t('arrived', { time: i.time(ph.arrivedAt) });
   }
   const pct = Math.round(p.fraction * 100);
+  const ends = journeyEnds(j);
+  const first = j.legs.find((l) => l.kind === 'ride') ?? j.legs[0];
+  const last = j.legs.at(-1);
   return (
     <div class="rb-status">
+      {/* Kachel mit Icon (Farbe = Zustand), daneben Überschrift und zweite Zeile */}
       <div class={`rb-state rb-state-${kind}`}>
-        <span class="rb-dot" aria-hidden="true" />
-        <span class="rb-state-text">{text}</span>
-        {icon && <span class="rb-state-icon">{icon}</span>}
-        {sub && <span class="rb-muted rb-state-sub">{sub}</span>}
+        <span class="rb-state-tile" aria-hidden="true">
+          {icon ?? <span class="rb-dot" />}
+        </span>
+        <span class="rb-state-main">
+          <span class="rb-state-text">{text}</span>
+          {sub && <span class="rb-muted rb-state-sub">{sub}</span>}
+        </span>
       </div>
-      <div class="rb-arrival">
-        <span>{i.t('arrival', { time: p.plannedArrival ? i.time(p.plannedArrival) : '–' })}</span>
-        {p.delayMin !== undefined && (p.delayMin > 0 ? <Delay d={p.delayMin} /> : <span class="rb-ontime">{i.t('onTime')}</span>)}
-        {p.delayMin !== undefined && p.delayMin > 0 && p.arrival && <span class="rb-muted"> → {i.time(p.arrival)}</span>}
-      </div>
-      <div class="rb-bar" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}>
-        <span style={{ width: `${pct}%` }} />
+      {/* Gesamtstrecke: Abfahrt links, Ankunft rechts, Fortschritt dazwischen */}
+      <div class="rb-span">
+        <span class="rb-span-time">
+          {first?.from.plannedDeparture ? i.time(first.from.plannedDeparture) : '–'} <Delay d={first ? depDelay(first.from) : undefined} />
+        </span>
+        <div class="rb-bar" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}>
+          <span style={{ width: `${pct}%` }} />
+        </div>
+        <span class="rb-span-time end">
+          {p.plannedArrival ? i.time(p.plannedArrival) : '–'} <Delay d={last ? arrDelay(last.to) : undefined} />
+        </span>
+        <span class="rb-span-names">
+          <span>{ends.from}</span>
+          <span class="end">
+            {p.delayMin !== undefined && p.delayMin > 0 && p.arrival ? `${i.t('arrivalAt', { time: i.time(p.arrival) })} · ` : ''}
+            {ends.to}
+          </span>
+        </span>
       </div>
     </div>
   );
