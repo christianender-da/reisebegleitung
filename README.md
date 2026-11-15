@@ -76,6 +76,27 @@ Updates: `git pull && npm ci && npm run app:migrate && npm run app:deploy`.
 Die App frischt laufende Reisen per Cron jede Minute auf (`triggers` in `app/wrangler.jsonc`; im kostenlosen Plan
 sind einige Cron Trigger pro Konto enthalten).
 
+### Als Abhängigkeit in einem eigenen Repo betreiben
+
+Wer seine Konfiguration (Domain, Datenbank, Name) nicht in einem Fork pflegen will: Paket als Abhängigkeit einbinden
+(`npm i github:christianender-da/reisebegleitung#<commit>`) und eine eigene `wrangler.jsonc` anlegen, die Worker, Oberfläche
+und Migrationen aus `node_modules/reisebegleitung/app/` verwendet:
+
+```jsonc
+{
+  "name": "meine-reise",
+  "main": "../node_modules/reisebegleitung/app/src/worker.ts",
+  "compatibility_date": "2026-11-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": { "directory": "./dist", "binding": "ASSETS", "run_worker_first": true, "not_found_handling": "single-page-application" },
+  "vars": { "CONTACT": "du@example.org" },
+  "d1_databases": [{ "binding": "DB", "database_name": "meine-reise", "database_id": "…", "migrations_dir": "../node_modules/reisebegleitung/app/migrations" }],
+  "triggers": { "crons": ["* * * * *"] }
+}
+```
+
+Oberfläche bauen: `vite build --config node_modules/reisebegleitung/app/web/vite.config.ts --outDir "$PWD/<ordner>/dist" --emptyOutDir`.
+
 ### Lokal entwickeln
 
 ```bash
