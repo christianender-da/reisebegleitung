@@ -1,6 +1,6 @@
 {
   "name": "reisebegleitung",
-  "version": "0.6.2-beta.1",
+  "version": "0.6.3-beta.1",
   "description": "Reisebegleitung für Bahnreisen: Verbindungen, Live-Fortschritt, Anschlussprüfung und Ticketregeln auf Basis der offenen MOTIS-API von Transitous – als Bibliothek, Widget-Baustein und eigenständige App (Cloudflare).",
   "type": "module",
   "license": "MIT",
