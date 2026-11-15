@@ -43,6 +43,19 @@ export interface StoredAlternatives {
   error?: string;
 }
 
+/** Teilen-Link: nur der SHA-256 des Tokens wird gespeichert */
+export interface ShareRecord {
+  id: string;
+  tokenHash: string;
+  tripId: string;
+  scope: string;
+  /** für wen (nur für den Besitzer sichtbar) */
+  label: string;
+  /** Anzeigename des Teilenden (für Empfänger), optional */
+  sharedBy: string | null;
+  createdAt: string;
+}
+
 export interface PushRecord extends PushSubscriptionJSON {
   scope: string;
   lang: string;
@@ -57,6 +70,10 @@ export interface TripStore {
   insert(trip: TripRecord): Promise<void>;
   setBoarding(id: string, boarding: Boarding): Promise<void>;
   setAlternatives(id: string, alternatives: StoredAlternatives | null): Promise<void>;
+  addShare(s: ShareRecord): Promise<void>;
+  getShare(tokenHash: string): Promise<ShareRecord | null>;
+  listShares(scope: string, tripId: string): Promise<ShareRecord[]>;
+  deleteShare(scope: string, id: string): Promise<void>;
   addPush(p: PushRecord): Promise<void>;
   removePush(endpoint: string): Promise<void>;
   listPush(scope: string): Promise<PushRecord[]>;

@@ -3,11 +3,12 @@
  *
  * /api/auth/*      Passkey-Anmeldung (Rate-Limit pro IP)
  * /api/journey/*   Reisebegleitung (nur angemeldet) – siehe src/server/handler.ts
+ * /r/<token>       Teilen-Link ohne Anmeldung: Seite, /data (JSON), /lite (ohne JavaScript)
  * sonst            Oberfläche (Assets, SPA)
  * Cron (jede Minute): laufende Reisen mit Echtzeit auffrischen
  */
 import { Hono, type Context } from 'hono';
-import { createJourneyService, d1Store, handleJourneyRequest, type JourneyService } from '../../src/server/index.ts';
+import { createJourneyService, d1Store, handleJourneyRequest, handleSharedRequest, renderSharedLite, type JourneyService } from '../../src/server/index.ts';
 import * as auth from './auth.ts';
 import { contactOk, VERSION } from './config.ts';
 
@@ -21,6 +22,8 @@ interface Env {
   TRANSITOUS_URL?: string;
   /** optional (Secret): privater VAPID-Schlüssel als JWK für Benachrichtigungen – npm run vapid-keys */
   VAPID_PRIVATE_JWK?: string;
+  /** optional: Name, den Empfänger von Teilen-Links sehen („Geteilt von …“) */
+  OWNER_NAME?: string;
 }
 
 type App = { Bindings: Env };
@@ -134,10 +137,43 @@ app.all('/api/journey/*', async (c) => {
   const s = journeyService(c.env);
   if (!s) return c.json({ error: 'no-contact' }, 503);
   const path = new URL(c.req.url).pathname.slice('/api/journey'.length);
-  return handleJourneyRequest(s, c.req.raw, path, { scope: 'default', owner: 'owner', canEdit: true });
+  return handleJourneyRequest(s, c.req.raw, path, { scope: 'default', owner: 'owner', canEdit: true, ownerName: c.env.OWNER_NAME ?? null });
 });
 
 app.all('/api/*', (c) => c.json({ error: 'not-found' }, 404));
+
+// ---------- Teilen-Links (ohne Anmeldung) ----------
+
+const TOKEN = /^[\w-]{20,64}$/;
+const langOf = (c: Context<App>) => ((c.req.header('Accept-Language') ?? '').toLowerCase().startsWith('de') ? 'de' : 'en');
+
+app.get('/r/:token/data', async (c) => {
+  const s = journeyService(c.env);
+  if (!s) return c.json({ error: 'no-contact' }, 503);
+  const res = await handleSharedRequest(s, c.req.param('token'));
+  // ungültige Tokens bremsen (Raten verhindern)
+  if (res.status === 404 && (await limited(c))) return c.json({ error: 'rate-limited' }, 429);
+  return res;
+});
+
+app.get('/r/:token/lite', async (c) => {
+  const s = journeyService(c.env);
+  if (!s) return c.text('Not configured', 503);
+  const result = await s.shared(c.req.param('token'));
+  if (result.status === 'not-found' && (await limited(c))) return c.text('Too many requests', 429);
+  return c.body(renderSharedLite(result, langOf(c)), result.status === 'ok' ? 200 : result.status === 'expired' ? 410 : 404, {
+    'Content-Type': 'text/html; charset=utf-8',
+    'Cache-Control': 'no-store',
+    // nur Inline-CSS, kein Skript (alte Browser, Kindle)
+    'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+  });
+});
+
+app.get('/r/:token', async (c) => {
+  if (!TOKEN.test(c.req.param('token'))) return c.text('Not found', 404);
+  const page = await c.env.ASSETS.fetch(new Request(new URL('/share.html', c.req.url)));
+  return new Response(page.body, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' } });
+});
 
 // ---------- Oberfläche ----------
 

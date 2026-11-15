@@ -19,8 +19,9 @@ as building blocks for your own dashboard, or as a self-hosted Cloudflare app wi
   Hinweis, ob sie mit dem Ticket nutzbar sind (Zugbindung aufgehoben, Deutschlandticket); „Übernehmen“ ersetzt die
   restliche Reise
 - **Benachrichtigungen** per Web Push (ohne Zusatz-App; auf iPhone/iPad nach „Zum Home-Bildschirm“)
-
-Geplant: Teilen-Link für Familie und Freunde, der 2 h nach Ankunft abläuft.
+- **Teilen-Links** für Familie und Freunde: Reise live verfolgen ohne Anmeldung (inkl. „An Bord“, ohne Ticketangaben),
+  gültig bis 2 h nach der tatsächlichen Ankunft, jederzeit widerrufbar; dazu eine einfache Ansicht ohne JavaScript
+  (alte Browser, Kindle). Gespeichert wird nur ein Hash des Links.
 
 ## Drei Arten der Nutzung
 
@@ -48,6 +49,7 @@ In `app/wrangler.jsonc`:
 2. **`CONTACT`** setzen – Pflicht laut Transitous-Nutzungsregeln: deine E-Mail-Adresse oder eine URL
    (z. B. deinen Fork). Sie wird bei jeder Anfrage im `User-Agent` mitgeschickt.
 3. Optional eine eigene Domain unter `routes` eintragen (sonst `reisebegleitung.<konto>.workers.dev`).
+4. Optional `OWNER_NAME`: dein Name, den Empfänger von Teilen-Links sehen („Geteilt von …“).
 
 ```bash
 npm run app:migrate       # Tabellen anlegen
@@ -101,6 +103,11 @@ export default { fetch, scheduled: (_e, env, ctx) => ctx.waitUntil(service.refre
 
 Benachrichtigungen: `createJourneyService({ …, push: { privateJwk: env.VAPID_PRIVATE_JWK, subject: 'mailto:…' } })` und
 im Service Worker der Seite `push`/`notificationclick` behandeln (Vorlage: `app/web/public/sw.js`).
+
+Teilen-Links: `handleSharedRequest(service, token)` (JSON) und `renderSharedLite(await service.shared(token), 'de')` (HTML ohne
+JavaScript, mit `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'` ausliefern) unter einem öffentlichen Pfad
+einhängen, z. B. `/r/<token>/data` und `/r/<token>/lite`; die Seite `/r/<token>` rendert `<SharedView dataUrl=… />`.
+Ungültige Tokens per Rate-Limit bremsen.
 
 Oberfläche (Preact):
 

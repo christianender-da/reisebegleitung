@@ -11,5 +11,5 @@
     "skipLibCheck": true,
     "types": []
   },
-  "include": ["src/core/**/*.ts", "src/server/**/*.ts"]
+  "include": ["src/core/**/*.ts", "src/server/**/*.ts", "src/ui/i18n.ts"]
 }
