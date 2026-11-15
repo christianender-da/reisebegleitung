@@ -951,7 +951,16 @@ function NewTrip({
           {i.t('cancel')}
         </button>
       </div>
-      {error && <p class="rb-error rb-small">{i.t(error)}</p>}
+      {error && (
+        <div class="rb-row rb-wrap">
+          <p class="rb-error rb-small">{i.t(error)}</p>
+          {error === 'unavailable' && (
+            <button type="button" class="rb-btn rb-btn-small" disabled={busy} onClick={() => search()}>
+              {i.t('retry')}
+            </button>
+          )}
+        </div>
+      )}
       {result && result.journeys.length === 0 && <p class="rb-muted">{i.t('noResults')}</p>}
       {result && result.journeys.length > 0 && (
         <>

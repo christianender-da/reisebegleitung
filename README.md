@@ -13,7 +13,8 @@ as building blocks for your own dashboard, or as a self-hosted Cloudflare app wi
 - Live-Fortschritt: vor Abfahrt · unterwegs mit nächstem Halt · Umstieg · angekommen
 - Abschnitte mit allen Zwischenhalten, Abfahrts- und Ankunftsgleisen (Zug) bzw. Steigen (Tram/Bus), Gleiswechseln und Verspätungen.
   Fehlen Zuggleise in den offenen Daten (häufig bei Regionalzügen und S-Bahnen), ergänzt sie die App optional aus DB IRIS
-  (`IRIS_PLATFORMS`, inoffizielle Schnittstelle ohne Key, kann wegfallen).
+  (`IRIS_PLATFORMS`, inoffizielle Schnittstelle ohne Key, kann wegfallen) – erst für die gewählte Reise, nicht in der Suche, mit
+  höchstens 16 Unteranfragen je Aufruf (Cloudflare Free erlaubt 50); einmal gefunden, kostet das Auffrischen nur die Gleiswechsel-Abfrage.
 - Umstiegsampel: ok · knapp · nicht erreichbar · fällt aus · geschafft
 - Check-in je Zug („Eingestiegen“): Status „An Bord“, Nachfrage „Zug verpasst?“, neue Verbindung ab dem Halt
 - Aktualisierung im Hintergrund (Cron jede Minute), auch wenn niemand die Seite offen hat
