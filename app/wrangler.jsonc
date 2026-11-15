@@ -15,7 +15,9 @@
   "vars": {
     // PFLICHT (Nutzungsregeln Transitous): Kontakt für den User-Agent – E-Mail-Adresse oder URL,
     // z. B. "https://github.com/<du>/reisebegleitung" oder "reise@example.org". Ohne Kontakt keine Fahrplandaten.
-    "CONTACT": ""
+    "CONTACT": "",
+    // optional: dein Name für Empfänger von Teilen-Links („Geteilt von …“)
+    "OWNER_NAME": ""
   },
   "d1_databases": [
     {

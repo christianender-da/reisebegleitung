@@ -91,6 +91,31 @@ const EARLY_REFRESH_MS = 5 * 60_000;
 /** gleicher Auslöser: Alternativen höchstens so oft neu suchen */
 const ALT_REFRESH_MS = 10 * 60_000;
 const ALT_RESULTS = 4;
+/** Teilen-Links gelten bis so lange nach der (Echtzeit-)Ankunft */
+export const SHARE_AFTER_ARRIVAL_MS = 2 * 3600_000;
+const MAX_SHARES_PER_TRIP = 10;
+
+export interface ShareInfo {
+  id: string;
+  label: string;
+  createdAt: string;
+  expiresAt: string;
+}
+
+/** Was Empfänger eines Teilen-Links sehen: wie TripView, aber ohne Ticketangaben */
+export type SharedTripView = Omit<TripView, 'ticket' | 'dticket'> & { ticket?: undefined; dticket?: undefined };
+
+export type SharedResult =
+  | { status: 'ok'; trip: SharedTripView; expiresAt: string; sharedBy: string | null }
+  | { status: 'expired' }
+  | { status: 'not-found' };
+
+async function sha256(s: string): Promise<string> {
+  const d = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)));
+  return btoa(String.fromCharCode(...d)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+const shareExpiry = (arriveAt: string) => new Date(Date.parse(arriveAt) + SHARE_AFTER_ARRIVAL_MS).toISOString();
 
 /** Ist ein Live-Abgleich fällig? (3 h vor Abfahrt bis 30 min nach Ankunft; vor Abfahrt seltener) */
 export function refreshDue(r: Pick<TripRecord, 'departAt' | 'arriveAt' | 'refreshedAt'>, t: number): boolean {
@@ -292,6 +317,48 @@ export function createJourneyService(opts: JourneyServiceOptions) {
       });
       await store.setPref(scope, 'dticket', dticket ? '1' : '0');
       return id;
+    },
+
+    /** Teilen-Link anlegen; der Token wird nur jetzt zurückgegeben (gespeichert ist nur sein Hash) */
+    async createShare(scope: string, tripId: string, b: { label?: unknown }, sharedBy?: string | null): Promise<ShareInfo & { token: string }> {
+      const r = await store.get(scope, tripId);
+      if (!r) throw new JourneyError('not-found');
+      if (Date.now() > Date.parse(shareExpiry(r.arriveAt))) throw new JourneyError('expired');
+      if ((await store.listShares(scope, tripId)).length >= MAX_SHARES_PER_TRIP) throw new JourneyError('too-many');
+      const token = randomId(24);
+      const label = typeof b.label === 'string' ? b.label.trim().slice(0, 60) : '';
+      const share = { id: randomId(9), tokenHash: await sha256(token), tripId, scope, label, sharedBy: sharedBy?.trim().slice(0, 60) || null, createdAt: nowIso() };
+      await store.addShare(share);
+      return { id: share.id, label, createdAt: share.createdAt, expiresAt: shareExpiry(r.arriveAt), token };
+    },
+
+    async listShares(scope: string, tripId: string): Promise<ShareInfo[]> {
+      const r = await store.get(scope, tripId);
+      if (!r) throw new JourneyError('not-found');
+      return (await store.listShares(scope, tripId)).map((s) => ({ id: s.id, label: s.label, createdAt: s.createdAt, expiresAt: shareExpiry(r.arriveAt) }));
+    },
+
+    async revokeShare(scope: string, tripId: string, shareId: string) {
+      const shares = await store.listShares(scope, tripId);
+      if (!shares.some((s) => s.id === shareId)) throw new JourneyError('not-found');
+      await store.deleteShare(scope, shareId);
+    },
+
+    /** Reise zu einem Teilen-Link (ohne Anmeldung): Live-Stand, ohne Ticketangaben; abgelaufen = 2 h nach Ankunft */
+    async shared(token: string): Promise<SharedResult> {
+      if (!/^[\w-]{20,64}$/.test(token)) return { status: 'not-found' };
+      const share = await store.getShare(await sha256(token));
+      if (!share) return { status: 'not-found' };
+      let r = await store.get(share.scope, share.tripId);
+      if (!r) return { status: 'expired' };
+      const t = Date.now();
+      if (t > Date.parse(shareExpiry(r.arriveAt))) return { status: 'expired' };
+      let stale = false;
+      if (refreshDue(r, t)) ({ record: r, stale } = await refresh(r));
+      // nach dem Auffrischen kann sich die Ankunft verschoben haben
+      if (t > Date.parse(shareExpiry(r.arriveAt))) return { status: 'expired' };
+      const { ticket: _t, dticket: _d, ...trip } = view({ record: r, stale }, t);
+      return { status: 'ok', trip, expiresAt: shareExpiry(r.arriveAt), sharedBy: share.sharedBy };
     },
 
     async deleteTrip(scope: string, id: string) {

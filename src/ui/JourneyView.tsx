@@ -28,11 +28,14 @@ import {
   type Ticket,
   type Transfer,
 } from '../core/index.ts';
-import type { TripView } from '../server/service.ts';
+import type { ShareInfo, SharedTripView, TripView } from '../server/service.ts';
 import { JourneyApiError, type JourneyApi } from './api.ts';
 import { i18n, type I18n, type Key, type Lang } from './i18n.ts';
 
-const Ctx = createContext<{ api: JourneyApi; i: I18n }>(null as never);
+const Ctx = createContext<{ api: JourneyApi; i: I18n; shareUrl: (token: string) => string }>(null as never);
+/** Reise in der Oberfläche: eigene (mit Ticket) oder geteilte (ohne Ticketangaben) */
+type AnyTrip = Omit<TripView, 'ticket' | 'dticket'> & { ticket?: Ticket; dticket?: boolean };
+const defaultShareUrl = (token: string) => `${location.origin}/r/${token}`;
 const useI = () => useContext(Ctx).i;
 
 const TICKET_KEYS: Record<Ticket, Key> = {
@@ -205,7 +208,7 @@ function Status({ j, now, boarding }: { j: Journey; now: number; boarding: Board
   );
 }
 
-function TripCard({ trip, canEdit, onChanged, onReplan }: { trip: TripView; canEdit: boolean; onChanged: () => void; onReplan: (from: StopHit, to: StopHit) => void }) {
+function TripCard({ trip, canEdit, onChanged, onReplan }: { trip: AnyTrip; canEdit: boolean; onChanged: () => void; onReplan: (from: StopHit, to: StopHit) => void }) {
   const { api, i } = useContext(Ctx);
   const j = trip.journey;
   const boarding = trip.boarding ?? { checkins: [], missed: [] };
@@ -229,6 +232,8 @@ function TripCard({ trip, canEdit, onChanged, onReplan }: { trip: TripView; canE
   const last = j.legs.at(-1);
   const lastWalk = last?.kind === 'walk' ? last.walkMin : undefined;
 
+  const [sharing, setSharing] = useState(false);
+
   async function remove() {
     if (!confirm(i.t('confirmDelete'))) return;
     await api.deleteTrip(trip.id);
@@ -242,7 +247,9 @@ function TripCard({ trip, canEdit, onChanged, onReplan }: { trip: TripView; canE
           {ends.from} → {ends.to}
         </h3>
         <div class="rb-muted rb-small">
-          {[start ? i.day(start) : '', i.t(TICKET_KEYS[trip.ticket]), trip.dticket && trip.ticket !== 'dticket' ? i.t('withDTicket') : ''].filter(Boolean).join(' · ')}
+          {[start ? i.day(start) : '', trip.ticket ? i.t(TICKET_KEYS[trip.ticket]) : '', trip.ticket && trip.dticket && trip.ticket !== 'dticket' ? i.t('withDTicket') : '']
+            .filter(Boolean)
+            .join(' · ')}
         </div>
       </div>
       <Status j={j} now={now} boarding={boarding} />
@@ -253,8 +260,12 @@ function TripCard({ trip, canEdit, onChanged, onReplan }: { trip: TripView; canE
       <ol class="rb-legs">{items}</ol>
       {lastWalk ? <p class="rb-muted rb-small">{i.t('walk', { n: lastWalk })}</p> : null}
       {trip.stale && trip.refreshedAt && <p class="rb-muted rb-small">{i.t('stale', { time: i.time(trip.refreshedAt) })}</p>}
+      {canEdit && sharing && <SharePanel trip={trip} />}
       {canEdit && (
         <div class="rb-row">
+          <button type="button" class={`rb-btn rb-btn-small ${sharing ? 'rb-primary' : ''}`} onClick={() => setSharing(!sharing)}>
+            ↗ {i.t('share')}
+          </button>
           <span class="rb-spacer" />
           <button type="button" class="rb-btn rb-btn-small rb-danger" onClick={remove}>
             {i.t('deleteTrip')}
@@ -272,12 +283,14 @@ export interface JourneyViewProps {
   lang?: Lang;
   /** Aktualisierung in ms (Standard 60 s) */
   refreshMs?: number;
+  /** Adresse eines Teilen-Links aus dem Token (Standard: <origin>/r/<token>) */
+  shareUrl?: (token: string) => string;
 }
 
 /** Hauptansicht: alle Reisen mit Live-Stand + (für Berechtigte) „Reise anlegen“ */
-export function JourneyView({ api, canEdit, lang = 'de', refreshMs = 60_000 }: JourneyViewProps) {
+export function JourneyView({ api, canEdit, lang = 'de', refreshMs = 60_000, shareUrl = defaultShareUrl }: JourneyViewProps) {
   const i = useMemo(() => i18n(lang), [lang]);
-  const ctx = useMemo(() => ({ api, i }), [api, i]);
+  const ctx = useMemo(() => ({ api, i, shareUrl }), [api, i, shareUrl]);
   const [data, setData] = useState<{ trips: TripView[]; dticket?: boolean } | null>(null);
   const [failed, setFailed] = useState(false);
   /** false = Liste; sonst „Reise anlegen“, ggf. mit Start/Ziel vorbelegt */
@@ -356,6 +369,111 @@ function Disclaimer() {
   );
 }
 
+/** Teilen-Links einer Reise: anlegen (Token nur einmal sichtbar), senden/kopieren, widerrufen */
+function SharePanel({ trip }: { trip: AnyTrip }) {
+  const { api, i, shareUrl } = useContext(Ctx);
+  const [shares, setShares] = useState<ShareInfo[] | null>(null);
+  const [label, setLabel] = useState('');
+  const [fresh, setFresh] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [error, setError] = useState<Key | null>(null);
+  const [busy, setBusy] = useState(false);
+  const ends = journeyEnds(trip.journey);
+
+  const load = useCallback(() => {
+    api
+      .shares(trip.id)
+      .then((r) => setShares(r.shares))
+      .catch(() => setShares([]));
+  }, [api, trip.id]);
+  useEffect(load, [load]);
+
+  async function create() {
+    setBusy(true);
+    setError(null);
+    try {
+      const { share } = await api.createShare(trip.id, label);
+      setFresh(shareUrl(share.token));
+      setLabel('');
+      setCopied(false);
+      load();
+    } catch (e) {
+      setError(e instanceof JourneyApiError && e.code === 'too-many' ? 'shareTooMany' : 'shareFailed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function copy() {
+    if (!fresh) return;
+    try {
+      await navigator.clipboard.writeText(fresh);
+      setCopied(true);
+    } catch {
+      /* Zwischenablage gesperrt – Link steht ja im Feld */
+    }
+  }
+
+  async function send() {
+    if (!fresh) return;
+    try {
+      await navigator.share({ title: i.t('shareTitle'), text: i.t('shareText', { from: ends.from, to: ends.to }), url: fresh });
+    } catch {
+      /* abgebrochen */
+    }
+  }
+
+  async function revoke(id: string) {
+    if (!confirm(i.t('confirmDelete'))) return;
+    await api.revokeShare(trip.id, id).catch(() => {});
+    load();
+  }
+
+  return (
+    <div class="rb-share">
+      <p class="rb-share-title">{i.t('shareTitle')}</p>
+      <p class="rb-muted rb-small">{i.t('shareHint')}</p>
+      {fresh && (
+        <div class="rb-share-new">
+          <p class="rb-small">{i.t('shareNew')}</p>
+          <input readOnly value={fresh} onFocus={(e) => (e.target as HTMLInputElement).select()} />
+          <div class="rb-row rb-wrap">
+            {'share' in navigator && (
+              <button type="button" class="rb-btn rb-btn-small rb-primary" onClick={send}>
+                {i.t('shareSend')}
+              </button>
+            )}
+            <button type="button" class="rb-btn rb-btn-small" onClick={copy}>
+              {copied ? i.t('shareCopied') : i.t('shareCopy')}
+            </button>
+          </div>
+        </div>
+      )}
+      <div class="rb-row rb-wrap rb-share-form">
+        <input value={label} maxLength={60} placeholder={i.t('shareLabel')} onInput={(e) => setLabel((e.target as HTMLInputElement).value)} />
+        <button type="button" class="rb-btn rb-btn-small" disabled={busy} onClick={create}>
+          {i.t('shareCreate')}
+        </button>
+      </div>
+      {error && <p class="rb-error rb-small">{i.t(error)}</p>}
+      {shares && shares.length === 0 && !fresh && <p class="rb-muted rb-small">{i.t('shareNone')}</p>}
+      {shares && shares.length > 0 && (
+        <ul class="rb-share-list">
+          {shares.map((s) => (
+            <li key={s.id}>
+              <span>{s.label || i.t('shareUnnamed', { time: `${i.day(s.createdAt)} ${i.time(s.createdAt)}` })}</span>
+              <span class="rb-muted rb-small"> · {i.t('linkValidUntil', { time: `${i.day(s.expiresAt)} ${i.time(s.expiresAt)}` })}</span>
+              <button type="button" class="rb-btn rb-btn-small rb-danger" onClick={() => revoke(s.id)}>
+                {i.t('shareRevoke')}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 /** Kurzer Hinweis, warum eine Alternative mit dem Ticket nutzbar ist (oder nicht) */
 function CoverageNote({ option }: { option: AlternativeOption }) {
   const i = useI();
@@ -370,7 +488,7 @@ function CoverageNote({ option }: { option: AlternativeOption }) {
 }
 
 /** Alternativen, wenn die Reise so nicht mehr klappt (Anschluss weg, Ausfall, Zug verpasst) */
-function AlternativesBox({ trip, canEdit, onChanged }: { trip: TripView; canEdit: boolean; onChanged: () => void }) {
+function AlternativesBox({ trip, canEdit, onChanged }: { trip: AnyTrip; canEdit: boolean; onChanged: () => void }) {
   const { api, i } = useContext(Ctx);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(false);
@@ -510,7 +628,7 @@ function BoardingPrompt({
   onChanged,
   onReplan,
 }: {
-  trip: TripView;
+  trip: AnyTrip;
   prompt: NonNullable<ReturnType<typeof boardingState>['prompt']>;
   onChanged: () => void;
   onReplan: (from: StopHit, to: StopHit) => void;
@@ -836,5 +954,88 @@ function NewTrip({
       )}
       <Disclaimer />
     </form>
+  );
+}
+
+// ---------- Empfängerseite eines Teilen-Links ----------
+
+export interface SharedViewProps {
+  /** JSON-Adresse des Links (handleSharedRequest), z. B. /r/<token>/data */
+  dataUrl: string;
+  lang?: Lang;
+  /** Adresse der einfachen Ansicht ohne JavaScript (optional) */
+  liteUrl?: string;
+  refreshMs?: number;
+}
+
+const noApi = new Proxy({}, { get: () => () => Promise.reject(new Error('read-only')) }) as JourneyApi;
+
+/** Nur ansehen: Reise mit Live-Stand, ohne Anmeldung und ohne Ticketangaben; „abgelaufen“ nach Ablauf */
+export function SharedView({ dataUrl, lang = 'de', liteUrl, refreshMs = 60_000 }: SharedViewProps) {
+  const i = useMemo(() => i18n(lang), [lang]);
+  const ctx = useMemo(() => ({ api: noApi, i, shareUrl: defaultShareUrl }), [i]);
+  const [data, setData] = useState<{ trip: SharedTripView; expiresAt: string; sharedBy: string | null } | null>(null);
+  const [state, setState] = useState<'loading' | 'ok' | 'expired' | 'not-found' | 'error'>('loading');
+  useTick(30_000);
+
+  const load = useCallback(() => {
+    if (document.visibilityState !== 'visible') return;
+    fetch(dataUrl, { credentials: 'omit' })
+      .then(async (res) => {
+        if (res.status === 410) return setState('expired');
+        if (res.status === 404) return setState('not-found');
+        if (!res.ok) return setState((s) => (s === 'ok' ? 'ok' : 'error'));
+        setData(await res.json());
+        setState('ok');
+      })
+      .catch(() => setState((s) => (s === 'ok' ? 'ok' : 'error')));
+  }, [dataUrl]);
+
+  useEffect(() => {
+    load();
+    const id = setInterval(load, refreshMs);
+    document.addEventListener('visibilitychange', load);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', load);
+    };
+  }, [load, refreshMs]);
+
+  useEffect(() => {
+    if (data) document.title = `${journeyEnds(data.trip.journey).from} → ${journeyEnds(data.trip.journey).to}`;
+  }, [data]);
+
+  return (
+    <Ctx.Provider value={ctx}>
+      <div class="rb-root rb-shared">
+        {state === 'loading' && <p class="rb-muted">{i.t('loading')}</p>}
+        {state === 'expired' && <p class="rb-shared-msg">{i.t('sharedExpired')}</p>}
+        {state === 'not-found' && <p class="rb-shared-msg">{i.t('sharedNotFound')}</p>}
+        {state === 'error' && <p class="rb-shared-msg">{i.t('unavailable')}</p>}
+        {state === 'ok' && data && (
+          <>
+            <TripCard trip={data.trip} canEdit={false} onChanged={load} onReplan={() => {}} />
+            <p class="rb-muted rb-small">
+              {[data.sharedBy ? i.t('sharedBy', { name: data.sharedBy }) : '', i.t('linkValidUntil', { time: `${i.day(data.expiresAt)} ${i.time(data.expiresAt)}` })]
+                .filter(Boolean)
+                .join(' · ')}
+              {liteUrl && (
+                <>
+                  {' · '}
+                  <a href={liteUrl}>{i.t('liteLink')}</a>
+                </>
+              )}
+            </p>
+          </>
+        )}
+        <div class="rb-row">
+          <span class="rb-spacer" />
+          <a class="rb-muted rb-small" href={TRANSITOUS_SOURCES} target="_blank" rel="noopener noreferrer">
+            {i.t('sources')}
+          </a>
+        </div>
+        <Disclaimer />
+      </div>
+    </Ctx.Provider>
   );
 }

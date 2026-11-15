@@ -537,3 +537,74 @@
 .rb-state-warn .rb-dot {
   background: var(--rb-danger);
 }
+
+.rb-share {
+  border: 1px solid var(--rb-accent);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--rb-card);
+  display: grid;
+  gap: 6px;
+}
+
+.rb-share p {
+  margin: 0;
+}
+
+.rb-share-title {
+  font-weight: 700;
+}
+
+.rb-share input {
+  font: inherit;
+  padding: 7px 10px;
+  border: 1px solid var(--rb-line);
+  border-radius: 10px;
+  background: var(--rb-card);
+  color: var(--rb-text);
+  min-width: 0;
+  flex: 1 1 200px;
+  width: 100%;
+}
+
+.rb-share-new {
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--rb-accent) 8%, var(--rb-card));
+}
+
+.rb-share-form input {
+  width: auto;
+}
+
+.rb-share-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.rb-share-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+
+.rb-share-list li .rb-btn {
+  margin-left: auto;
+}
+
+.rb-shared {
+  display: grid;
+  gap: 12px;
+}
+
+.rb-shared-msg {
+  font-size: 1.2rem;
+  font-weight: 600;
+  padding: 24px 0;
+}

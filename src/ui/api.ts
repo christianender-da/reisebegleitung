@@ -1,6 +1,6 @@
 /** Client für die HTTP-Schnittstelle (server/handler.ts), eingehängt unter `base` */
 import type { Journey, StopHit, Ticket } from '../core/index.ts';
-import type { TripView } from '../server/service.ts';
+import type { ShareInfo, TripView } from '../server/service.ts';
 
 export class JourneyApiError extends Error {
   status: number;
@@ -29,6 +29,9 @@ export interface JourneyApi {
   deleteTrip(id: string): Promise<void>;
   board(id: string, leg: number, action: 'checkin' | 'missed' | 'undo'): Promise<{ trip: TripView }>;
   chooseAlternative(id: string, index: number): Promise<{ trip: TripView }>;
+  shares(id: string): Promise<{ shares: ShareInfo[] }>;
+  createShare(id: string, label: string): Promise<{ share: ShareInfo & { token: string } }>;
+  revokeShare(id: string, shareId: string): Promise<void>;
   pushKey(): Promise<{ key: string | null }>;
   subscribe(subscription: unknown, lang: string): Promise<void>;
   unsubscribe(endpoint: string): Promise<void>;
@@ -71,6 +74,11 @@ export function createJourneyApi(base: string, opts: ApiOptions = {}): JourneyAp
     },
     board: (id, leg, action) => call(`/trips/${encodeURIComponent(id)}/boarding`, { body: { leg, action } }),
     chooseAlternative: (id, index) => call(`/trips/${encodeURIComponent(id)}/alternative`, { body: { index } }),
+    shares: (id) => call(`/trips/${encodeURIComponent(id)}/shares`),
+    createShare: (id, label) => call(`/trips/${encodeURIComponent(id)}/shares`, { body: { label } }),
+    revokeShare: async (id, shareId) => {
+      await call(`/trips/${encodeURIComponent(id)}/shares/${encodeURIComponent(shareId)}`, { method: 'DELETE' });
+    },
     pushKey: () => call('/push/key'),
     subscribe: async (subscription, lang) => {
       await call('/push/subscribe', { body: { subscription, lang } });

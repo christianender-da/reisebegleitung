@@ -1,6 +1,18 @@
 /** TripStore auf Cloudflare D1 (Schema: migrations/0001_journey.sql) */
 import { emptyBoarding, type Boarding, type Journey, type Ticket } from '../core/index.ts';
-import type { PushRecord, StoredAlternatives, TripRecord, TripStore } from './store.ts';
+import type { PushRecord, ShareRecord, StoredAlternatives, TripRecord, TripStore } from './store.ts';
+
+interface ShareRow {
+  id: string;
+  token_hash: string;
+  trip_id: string;
+  scope: string;
+  label: string;
+  shared_by: string | null;
+  created_at: string;
+}
+
+const toShare = (r: ShareRow): ShareRecord => ({ id: r.id, tokenHash: r.token_hash, tripId: r.trip_id, scope: r.scope, label: r.label, sharedBy: r.shared_by, createdAt: r.created_at });
 
 /** Nur die Teile von D1, die gebraucht werden (keine Abhängigkeit von @cloudflare/workers-types) */
 export interface D1Like {
@@ -110,6 +122,23 @@ export function d1Store(db: D1Like): TripStore {
     async setAlternatives(id, alternatives) {
       await db.prepare('UPDATE journey_trips SET alternatives = ? WHERE id = ?').bind(alternatives ? JSON.stringify(alternatives) : null, id).run();
     },
+    async addShare(s) {
+      await db
+        .prepare('INSERT INTO journey_shares (id, token_hash, trip_id, scope, label, shared_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .bind(s.id, s.tokenHash, s.tripId, s.scope, s.label, s.sharedBy, s.createdAt)
+        .run();
+    },
+    async getShare(tokenHash) {
+      const r = await db.prepare('SELECT * FROM journey_shares WHERE token_hash = ?').bind(tokenHash).first<ShareRow>();
+      return r ? toShare(r) : null;
+    },
+    async listShares(scope, tripId) {
+      const rows = await db.prepare('SELECT * FROM journey_shares WHERE scope = ? AND trip_id = ? ORDER BY created_at').bind(scope, tripId).all<ShareRow>();
+      return rows.results.map(toShare);
+    },
+    async deleteShare(scope, id) {
+      await db.prepare('DELETE FROM journey_shares WHERE scope = ? AND id = ?').bind(scope, id).run();
+    },
     async addPush(p) {
       await db
         .prepare(
@@ -132,10 +161,16 @@ export function d1Store(db: D1Like): TripStore {
       await db.prepare('UPDATE journey_trips SET journey = ?, arrive_at = ?, refreshed_at = ? WHERE id = ?').bind(JSON.stringify(journey), arriveAt, refreshedAt, id).run();
     },
     async delete(scope, id) {
-      await db.prepare('DELETE FROM journey_trips WHERE scope = ? AND id = ?').bind(scope, id).run();
+      await db.batch([
+        db.prepare('DELETE FROM journey_shares WHERE scope = ? AND trip_id = ?').bind(scope, id),
+        db.prepare('DELETE FROM journey_trips WHERE scope = ? AND id = ?').bind(scope, id),
+      ]);
     },
     async purge(arrivedBefore) {
-      await db.prepare('DELETE FROM journey_trips WHERE arrive_at < ?').bind(arrivedBefore).run();
+      await db.batch([
+        db.prepare('DELETE FROM journey_trips WHERE arrive_at < ?').bind(arrivedBefore),
+        db.prepare('DELETE FROM journey_shares WHERE trip_id NOT IN (SELECT id FROM journey_trips)'),
+      ]);
     },
     async getPref(scope, key) {
       const row = await db.prepare('SELECT value FROM journey_prefs WHERE scope = ? AND key = ?').bind(scope, key).first<{ value: string }>();

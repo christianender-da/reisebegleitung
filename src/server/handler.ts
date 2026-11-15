@@ -7,6 +7,11 @@
  *   DELETE /trips/<id>                                                   (canEdit)
  *   POST   /trips/<id>/boarding  { leg, action: checkin|missed|undo }    (canEdit)
  *   POST   /trips/<id>/alternative  { index }                           (canEdit)
+ *   GET    /trips/<id>/shares                                           (canEdit)  → { shares }
+ *   POST   /trips/<id>/shares  { label }                                (canEdit)  → { share: { id, token, expiresAt, … } }
+ *   DELETE /trips/<id>/shares/<shareId>                                 (canEdit)
+ *
+ * Teilen-Links (ohne Anmeldung): handleSharedRequest() bzw. renderSharedLite() unter einem eigenen Pfad einhängen.
  *   GET    /push/key                                                    (canEdit)  → { key } (null = Push nicht eingerichtet)
  *   POST   /push/subscribe   { subscription, lang }                    (canEdit)
  *   POST   /push/unsubscribe { endpoint }                              (canEdit)
@@ -17,6 +22,8 @@
 import { errorCode, parseTicket, type JourneyService } from './service.ts';
 
 export interface JourneyRequestContext {
+  /** Anzeigename für Empfänger von Teilen-Links (optional) */
+  ownerName?: string | null;
   /** getrennte Reiseliste, z. B. Widget-ID oder „default“ */
   scope: string;
   /** wer anlegt (für spätere Auswertung) */
@@ -29,7 +36,8 @@ function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' } });
 }
 
-const status = (code: string) => (code === 'bad-request' || code === 'plan-expired' ? 400 : code === 'not-found' ? 404 : code === 'push-off' ? 409 : 502);
+const status = (code: string) =>
+  code === 'bad-request' || code === 'plan-expired' ? 400 : code === 'not-found' ? 404 : code === 'push-off' || code === 'too-many' ? 409 : code === 'expired' ? 410 : 502;
 
 /**
  * path: Pfad unterhalb des Einhängepunkts, z. B. „/trips“ (bei Einhängen unter /api/journey der Rest nach /api/journey)
@@ -62,6 +70,15 @@ export async function handleJourneyRequest(service: JourneyService, request: Req
     if (parts[0] === 'trips' && parts.length === 2 && method === 'DELETE') {
       await service.deleteTrip(ctx.scope, decodeURIComponent(parts[1]));
       return json({ ok: true });
+    }
+    if (parts[0] === 'trips' && parts[2] === 'shares') {
+      const tripId = decodeURIComponent(parts[1]);
+      if (parts.length === 3 && method === 'GET') return json({ shares: await service.listShares(ctx.scope, tripId) });
+      if (parts.length === 3 && method === 'POST') return json({ share: await service.createShare(ctx.scope, tripId, body, ctx.ownerName) }, 201);
+      if (parts.length === 4 && method === 'DELETE') {
+        await service.revokeShare(ctx.scope, tripId, decodeURIComponent(parts[3]));
+        return json({ ok: true });
+      }
     }
     if (parts[0] === 'trips' && parts.length === 3 && parts[2] === 'alternative' && method === 'POST') {
       return json({ trip: await service.chooseAlternative(ctx.scope, decodeURIComponent(parts[1]), body.index) });
@@ -97,5 +114,20 @@ export async function handleJourneyRequest(service: JourneyService, request: Req
     const code = errorCode(e);
     if (code === 'unavailable') console.warn('reisebegleitung', path, String(e));
     return json({ error: code }, status(code));
+  }
+}
+
+/**
+ * Öffentliche Daten eines Teilen-Links (ohne Anmeldung): 200 { trip, expiresAt, sharedBy } · 410 { error: 'expired' } · 404.
+ * Ungültige Tokens bitte in der einbettenden App per Rate-Limit begrenzen.
+ */
+export async function handleSharedRequest(service: JourneyService, token: string): Promise<Response> {
+  try {
+    const r = await service.shared(token);
+    if (r.status === 'ok') return json({ trip: r.trip, expiresAt: r.expiresAt, sharedBy: r.sharedBy });
+    return json({ error: r.status }, r.status === 'expired' ? 410 : 404);
+  } catch (e) {
+    console.warn('reisebegleitung shared', String(e));
+    return json({ error: 'unavailable' }, 502);
   }
 }
