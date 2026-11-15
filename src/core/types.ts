@@ -37,6 +37,8 @@ export interface Stopover {
   track?: string;
   /** Herkunft des Gleises, wenn nicht aus der Hauptquelle (z. B. DB IRIS) */
   trackSource?: 'iris';
+  /** IRIS-Bahnhof und -Eintrag, falls das Gleis von dort stammt (für spätere Gleiswechsel) */
+  irisRef?: { eva: string; id: string };
   cancelled?: boolean;
 }
 

@@ -2,8 +2,9 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import type { Journey, Leg } from '../src/core/types.ts';
-import { berlinStamp, createIris, nameScore, nameVariants } from '../src/server/iris.ts';
+import { berlinStamp, carryIrisTracks, createIris, nameScore, nameVariants } from '../src/server/iris.ts';
 
+const NOW = Date.parse('2026-11-15T12:00:00Z');
 const fx = (n: string) => readFileSync(new URL(`./fixtures/${n}`, import.meta.url), 'utf8');
 
 test('Namen: Transitous ↔ IRIS', () => {
@@ -45,7 +46,7 @@ function fakeIris() {
                     : '<timetable></timetable>';
     return new Response(body, { status: 200 });
   }) as unknown as typeof globalThis.fetch;
-  return { iris: createIris({ userAgent: 'test/1', fetch, cache: null }), calls };
+  return { iris: createIris({ userAgent: 'test/1', fetch, cache: null, memory: new Map(), now: () => NOW }), calls };
 }
 
 const rb68 = (): Leg => ({
@@ -93,6 +94,43 @@ test('IRIS: unbekannter Zug oder Fehler → Reise unverändert', async () => {
   const { iris } = fakeIris();
   const other = { ...rb68(), number: '99999' };
   assert.deepEqual((await iris.enrich({ legs: [other] })).legs[0], other);
-  const broken = createIris({ userAgent: 't', cache: null, fetch: (async () => new Response('', { status: 500 })) as unknown as typeof fetch });
+  const broken = createIris({ userAgent: 't', cache: null, memory: new Map(), now: () => NOW, fetch: (async () => new Response('', { status: 500 })) as unknown as typeof fetch });
   assert.deepEqual((await broken.enrich({ legs: [rb68()] })).legs[0], rb68());
+});
+
+test('IRIS: Budget begrenzt Unteranfragen, gemerkte Gleise kosten nur die Änderungsabfrage', async () => {
+  const { iris, calls } = fakeIris();
+  // zu kleines Budget: nichts gefunden, aber höchstens so viele Anfragen
+  const none = await iris.enrich({ legs: [rb68()] }, 1);
+  assert.equal(none.legs[0].from.track, undefined);
+  assert.equal(calls.length, 1);
+  // knappes Budget: Plangleis gefunden, Gleiswechsel-Abfrage entfällt – kein Fehler
+  const { iris: i2, calls: c2b } = fakeIris();
+  const tight = await i2.enrich({ legs: [rb68()] }, 2);
+  assert.equal(tight.legs[0].from.track, '6');
+  assert.ok(c2b.length <= 2);
+  calls.length = 0;
+  const full = await iris.enrich({ legs: [rb68()] });
+  assert.deepEqual(full.legs[0].from.irisRef, { eva: '8000068', id: full.legs[0].from.irisRef!.id });
+  assert.ok(calls.length <= 16, `zu viele Anfragen: ${calls.length}`);
+  // zweiter Lauf mit irisRef: nur noch Änderungen (fchg) – Rest aus dem Speicher
+  const { iris: fresh, calls: c2 } = fakeIris();
+  await fresh.enrich(full);
+  assert.deepEqual([...new Set(c2)].sort(), ['/fchg/8000068', '/fchg/8000105']);
+});
+
+test('IRIS: nur Züge in den nächsten 24 h; Gleise überstehen das Auffrischen', async () => {
+  const { iris, calls } = fakeIris();
+  const later = rb68();
+  later.from.plannedDeparture = '2026-11-17T12:30:00Z';
+  await iris.enrich({ legs: [later] });
+  assert.equal(calls.length, 0);
+  const enriched = await iris.enrich({ legs: [{ ...rb68(), tripId: 't1' }] });
+  // frischer Stand aus Transitous ohne Gleis → IRIS-Gleis wird übernommen, Transitous-Gleis hätte Vorrang
+  const fresh: Journey = { legs: [{ ...rb68(), tripId: 't1' }] };
+  const carried = carryIrisTracks(enriched, fresh);
+  assert.equal(carried.legs[0].from.plannedTrack, '6');
+  assert.equal(carried.legs[0].from.trackSource, 'iris');
+  const withOwn: Journey = { legs: [{ ...rb68(), tripId: 't1', from: { ...rb68().from, track: '7' } }] };
+  assert.equal(carryIrisTracks(enriched, withOwn).legs[0].from.track, '7');
 });

@@ -32,7 +32,7 @@ import {
 } from '../core/index.ts';
 import type { CacheLike, StoredAlternatives, TripRecord, TripStore } from './store.ts';
 import { parseVapidJwk, sendPush, validSubscription, vapidPublicKey, type VapidConfig } from './webpush.ts';
-import { createIris, type Iris } from './iris.ts';
+import { carryIrisTracks, createIris, type Iris } from './iris.ts';
 
 export interface JourneyServiceOptions {
   store: TripStore;
@@ -98,6 +98,7 @@ const EARLY_REFRESH_MS = 5 * 60_000;
 /** gleicher Auslöser: Alternativen höchstens so oft neu suchen */
 const ALT_REFRESH_MS = 10 * 60_000;
 const ALT_RESULTS = 4;
+const MAX_REFRESH_PER_RUN = 3;
 /** Teilen-Links gelten bis so lange nach der (Echtzeit-)Ankunft */
 export const SHARE_AFTER_ARRIVAL_MS = 2 * 3600_000;
 const MAX_SHARES_PER_TRIP = 10;
@@ -174,9 +175,6 @@ export function createJourneyService(opts: JourneyServiceOptions) {
   const push = opts.sendPush ?? sendPush;
   const iris: Iris | null = opts.iris ?? (opts.irisPlatforms ? createIris({ userAgent: opts.userAgent, cache, base: opts.irisBase }) : null);
   const withTracks = async (j: Journey) => (iris ? iris.enrich(j).catch(() => j) : j);
-  /** Suchergebnisse: Gleise ergänzen, aber höchstens `ms` warten */
-  const withTracksQuick = (j: Journey, ms: number) =>
-    iris ? Promise.race([withTracks(j), new Promise<Journey>((res) => setTimeout(() => res(j), ms))]) : Promise.resolve(j);
 
   /** Alternativen pflegen: neu suchen bei neuem Auslöser (und alle 10 min), löschen, wenn alles wieder passt */
   async function maintainAlternatives(r: TripRecord, t: number): Promise<TripRecord> {
@@ -240,7 +238,7 @@ export function createJourneyService(opts: JourneyServiceOptions) {
 
   async function refresh(r: TripRecord): Promise<{ record: TripRecord; stale: boolean }> {
     const res = await refreshJourney(r.journey, cachedTrip);
-    res.journey = await withTracks(res.journey);
+    res.journey = await withTracks(carryIrisTracks(r.journey, res.journey));
     const refreshedAt = nowIso();
     const arriveAt = journeyEnd(res.journey) ?? r.arriveAt;
     await store.updateLive(r.id, res.journey, arriveAt, refreshedAt);
@@ -293,7 +291,8 @@ export function createJourneyService(opts: JourneyServiceOptions) {
           const to = q.toName?.trim().slice(0, 100);
           return from && to ? { ...j, title: { from, to } } : j;
         });
-      const journeys = await Promise.all(found.map((j) => withTracksQuick(j, 2500)));
+      // Suchergebnisse ohne IRIS: zu viele Unteranfragen (Cloudflare Free: 50 je Aufruf); ergänzt wird nach „Übernehmen“
+      const journeys = found;
       const planId = randomId(12);
       if (cache) await cache.put(key(`plan/${planId}`), new Response(JSON.stringify(journeys), { headers: { 'Cache-Control': `max-age=${PLAN_TTL_S}` } }));
       else memory.set(planId, journeys);
@@ -455,8 +454,9 @@ export function createJourneyService(opts: JourneyServiceOptions) {
     async refreshActive(): Promise<{ checked: number; refreshed: number }> {
       const t = Date.now();
       const rows = await store.listActive(new Date(t + LIVE_BEFORE_MS).toISOString(), new Date(t - LIVE_AFTER_MS).toISOString());
-      const due = rows.filter((r) => refreshDue(r, t));
-      await Promise.all(due.map((r) => refresh(r)));
+      // höchstens 3 Reisen je Lauf (Unteranfragen-Limit), die mit der nächsten Abfahrt zuerst – der Rest folgt im nächsten Lauf
+      const due = rows.filter((r) => refreshDue(r, t)).slice(0, MAX_REFRESH_PER_RUN);
+      for (const r of due) await refresh(r).catch((e) => console.warn('reisebegleitung refresh', r.id, String(e)));
       return { checked: rows.length, refreshed: due.length };
     },
   };

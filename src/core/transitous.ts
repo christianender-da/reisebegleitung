@@ -83,15 +83,21 @@ export function createClient(opts: ClientOptions): TransitousClient {
   async function get<T>(path: string, params: Record<string, string | number | boolean | undefined>): Promise<T> {
     const url = new URL(base + path);
     for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') url.searchParams.set(k, String(v));
-    let res: Response;
-    try {
-      res = await doFetch(url.toString(), {
-        headers: { Accept: 'application/json', 'User-Agent': opts.userAgent },
-        signal: AbortSignal.timeout(opts.timeoutMs ?? 8000),
-      });
-    } catch (e) {
-      throw new TransitousError('unavailable', `Transitous nicht erreichbar: ${String(e)}`);
+    let res: Response | undefined;
+    // ein zweiter Versuch bei Netzfehlern und 429/5xx (kurze Aussetzer)
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        res = await doFetch(url.toString(), {
+          headers: { Accept: 'application/json', 'User-Agent': opts.userAgent },
+          signal: AbortSignal.timeout(opts.timeoutMs ?? 8000),
+        });
+        if (res.status !== 429 && res.status < 500) break;
+      } catch (e) {
+        if (attempt === 1) throw new TransitousError('unavailable', `Transitous nicht erreichbar: ${String(e)}`);
+      }
+      if (attempt === 0) await new Promise((r) => setTimeout(r, 400));
     }
+    if (!res) throw new TransitousError('unavailable', 'Transitous nicht erreichbar');
     if (res.status === 404) throw new TransitousError('not-found', `Transitous 404 ${path}`);
     if (res.status === 400 || res.status === 422) throw new TransitousError('bad-request', `Transitous ${res.status} ${path}`);
     if (!res.ok) throw new TransitousError('unavailable', `Transitous ${res.status} ${path}`);
