@@ -11,7 +11,6 @@ import {
   boardingState,
   type AlternativeOption,
   type Boarding,
-  type BoardingEvent,
   type Coverage,
   depDelay,
   depTime,
@@ -27,7 +26,6 @@ import {
   type StopHit,
   type Stopover,
   type Ticket,
-  type Transfer,
 } from '../core/index.ts';
 import type { ShareInfo, SharedTripView, TripView } from '../server/service.ts';
 import { JourneyApiError, type JourneyApi } from './api.ts';
@@ -110,80 +108,6 @@ const isTrain = (m: Mode) => ['highspeed', 'longdistance', 'night', 'regional', 
 
 function LineBadge({ l }: { l: Leg }) {
   return <span class={`rb-line mode-${modeClass(l.mode)}`}>{l.line ?? '?'}</span>;
-}
-
-function StopRow({ s, kind, cls = '', mode }: { s: Stopover; kind: 'dep' | 'arr'; cls?: string; mode?: Mode }) {
-  const i = useI();
-  const planned = kind === 'dep' ? s.plannedDeparture : s.plannedArrival;
-  return (
-    <div class={`rb-stop ${cls} ${s.cancelled ? 'cancelled' : ''}`}>
-      <span class="rb-time">
-        {planned ? i.time(planned) : '–'} <Delay d={kind === 'dep' ? depDelay(s) : arrDelay(s)} />
-      </span>
-      <span class="rb-name">{s.stop.name}</span>
-      <Track s={s} mode={mode} />
-    </div>
-  );
-}
-
-function TransferRow({ tr, walk, active }: { tr: Transfer; walk?: number; active: boolean }) {
-  const i = useI();
-  const lost = tr.state === 'missed' || tr.state === 'cancelled';
-  const text = tr.state === 'cancelled' ? i.t('transferCancelled') : tr.state === 'missed' ? i.t('missed') : tr.state === 'tight' ? i.t('tight') : '';
-  if (tr.state === 'done')
-    return (
-      <li class="rb-transfer state-done">
-        <span class="rb-dot" aria-hidden="true" />
-        <span>{i.t('transferDone')}</span>
-      </li>
-    );
-  return (
-    <li class={`rb-transfer state-${tr.state} ${active ? 'active' : ''}`}>
-      <span class="rb-dot" aria-hidden="true" />
-      {lost ? <MissedIcon /> : <WalkerIcon pace={walkPace(tr.bufferMin - tr.neededMin)} moving={active} />}
-      <span>
-        {i.t('buffer', { n: tr.bufferMin })}
-        {walk ? ` · ${i.t('walk', { n: walk })}` : ''}
-        {text && <strong> · {text}</strong>}
-      </span>
-    </li>
-  );
-}
-
-function LegItem({ l, current, now, onBoard, checkin }: { l: Leg; current: boolean; now: number; onBoard: boolean; checkin?: BoardingEvent }) {
-  const i = useI();
-  const { avatar, compact } = useContext(Ctx);
-  const passed = (s: Stopover) => {
-    const x = Date.parse(arrTime(s) ?? depTime(s) ?? '');
-    return Number.isFinite(x) && x <= now;
-  };
-  return (
-    <li class={`rb-leg ${current ? 'current' : ''} ${l.cancelled ? 'cancelled' : ''}`}>
-      <div class="rb-leg-head">
-        <VehicleIcon mode={l.mode} moving={current && departed(l, now)} />
-        <LineBadge l={l} />
-        <span class="rb-dir">{l.headsign ? i.t('towards', { d: l.headsign }) : ''}</span>
-        {!compact && l.number && isTrain(l.mode) && !(l.line ?? '').includes(l.number) && <span class="rb-muted rb-small">{i.t('train', { n: l.number })}</span>}
-        {l.cancelled && <span class="rb-late">{i.t('cancelled')}</span>}
-        {onBoard ? (
-          <span class={`rb-onboard ${avatar ? 'with-photo' : ''}`}>
-            {avatar && <img class="rb-onboard-photo" src={avatar} alt="" width={20} height={20} />}
-            {i.t('onBoardBadge')}
-          </span>
-        ) : checkin ? <span class="rb-muted rb-small">✓ {i.t('checkedIn', { time: i.time(checkin.at) })}</span> : null}
-      </div>
-      <StopRow s={l.from} kind="dep" mode={l.mode} cls={passed(l.from) ? 'passed' : ''} />
-      {!compact && l.stopovers.length > 0 && (
-        <details class="rb-inner" open={current}>
-          <summary class="rb-muted rb-small">{l.stopovers.length === 1 ? i.t('stop1') : i.t('stops', { n: l.stopovers.length })}</summary>
-          {l.stopovers.map((s, k) => (
-            <StopRow s={s} kind="arr" mode={l.mode} key={k} cls={`inner ${passed(s) ? 'passed' : ''}`} />
-          ))}
-        </details>
-      )}
-      <StopRow s={l.to} kind="arr" mode={l.mode} cls={passed(l.to) ? 'passed' : ''} />
-    </li>
-  );
 }
 
 function Status({ j, now, boarding }: { j: Journey; now: number; boarding: Boarding }) {
@@ -284,23 +208,8 @@ function TripCard({ trip, canEdit, onChanged, onReplan }: { trip: AnyTrip; canEd
   const boarding = trip.boarding ?? { checkins: [], missed: [] };
   const now = Date.now();
   const ends = journeyEnds(j);
-  const ph = progress(j, now, boarding).phase;
   const bs = boardingState(j, boarding, now);
-  const currentLeg = ph.kind === 'riding' && bs.prompt?.kind !== 'missed' ? ph.legIndex : -1;
-  const trs = transfersOf(j, { boarding });
   const start = j.legs[0]?.from.plannedDeparture;
-  const items: JSX.Element[] = [];
-  j.legs.forEach((l, k) => {
-    if (l.kind !== 'ride') return;
-    const tr = trs.find((x) => x.toLeg === k);
-    if (tr) {
-      const walk = j.legs.slice(tr.fromLeg + 1, k).reduce((s, w) => s + (w.walkMin ?? 0), 0);
-      items.push(<TransferRow tr={tr} walk={walk} active={ph.kind === 'transfer' && ph.legIndex === k} key={`t${k}`} />);
-    }
-    items.push(<LegItem l={l} current={k === currentLeg} now={now} onBoard={bs.onBoard === k} checkin={boarding.checkins.find((e) => e.leg === k)} key={`l${k}`} />);
-  });
-  const last = j.legs.at(-1);
-  const lastWalk = last?.kind === 'walk' ? last.walkMin : undefined;
 
   const [sharing, setSharing] = useState(false);
 
@@ -349,10 +258,7 @@ function TripCard({ trip, canEdit, onChanged, onReplan }: { trip: AnyTrip; canEd
         <Whereabouts j={j} now={now} boarding={boarding} />
       ) : (
         <>
-          <ol class="rb-legs" data-title={i.t('connectionTitle')}>
-            {items}
-          </ol>
-          {lastWalk ? <p class="rb-muted rb-small">{i.t('walk', { n: lastWalk })}</p> : null}
+          <Whereabouts j={j} now={now} boarding={boarding} detailed />
         </>
       )}
       {trip.stale && trip.refreshedAt && <p class="rb-muted rb-small">{i.t('stale', { time: i.time(trip.refreshedAt) })}</p>}
@@ -631,8 +537,10 @@ function altTitle(i: I18n, a: NonNullable<AnyTrip['alternatives']>) {
  * Reduzierte Ansicht (geteilte Reise): „Wo ist die Person gerade?“ – Start, Umstiegshalte und Ziel als Strecke,
  * die aktuelle Fahrt mit fahrendem Fahrzeug und eigenem Fortschritt, beim Umsteigen die Person mit Rollkoffer am Halt.
  */
-function Whereabouts({ j, now, boarding }: { j: Journey; now: number; boarding: Boarding }) {
+function Whereabouts({ j, now, boarding, detailed = false }: { j: Journey; now: number; boarding: Boarding; detailed?: boolean }) {
   const i = useI();
+  const { avatar } = useContext(Ctx);
+  const bs = boardingState(j, boarding, now);
   const p = progress(j, now, boarding);
   const ph = p.phase;
   const trs = transfersOf(j, { boarding });
@@ -643,12 +551,15 @@ function Whereabouts({ j, now, boarding }: { j: Journey; now: number; boarding: 
     return Number.isFinite(t) && t <= now;
   };
   const rows: JSX.Element[] = [];
-  const stop = (s: Stopover, kind: 'dep' | 'arr', key: string, extra?: JSX.Element | null, here = false) => {
+  const stop = (s: Stopover, kind: 'dep' | 'arr', key: string, extra?: JSX.Element | null, here = false, mode?: Mode) => {
     const planned = kind === 'dep' ? s.plannedDeparture : s.plannedArrival;
     rows.push(
       <li class={`rb-where-stop ${reached(s, kind) ? 'passed' : ''} ${here ? 'here' : ''}`} key={key}>
         <span class="rb-where-dot" aria-hidden="true" />
-        <span class="rb-where-name">{s.stop.name}</span>
+        <span class="rb-where-name">
+          {s.stop.name}
+          {detailed && <Track s={s} mode={mode} />}
+        </span>
         <span class="rb-where-time">
           {planned ? i.time(planned) : '–'} <Delay d={kind === 'dep' ? depDelay(s) : arrDelay(s)} />
         </span>
@@ -658,14 +569,62 @@ function Whereabouts({ j, now, boarding }: { j: Journey; now: number; boarding: 
   };
   rides.forEach((k, n) => {
     const l = j.legs[k];
-    if (n === 0) stop(l.from, 'dep', `s${k}`, null, ph.kind === 'before');
+    if (n === 0) stop(l.from, 'dep', `s${k}`, null, ph.kind === 'before', l.mode);
+    const checkin = boarding.checkins.find((e) => e.leg === k);
     const riding = ph.kind === 'riding' && ph.legIndex === k;
     const done = !riding && reached(l.to, 'arr');
     const fraction = riding ? Math.max(0, Math.min(1, (now - Date.parse(depTime(l.from) ?? '')) / (Date.parse(arrTime(l.to) ?? '') - Date.parse(depTime(l.from) ?? '')))) : 0;
     rows.push(
       <li class={`rb-where-ride ${riding ? 'current' : ''} ${done ? 'passed' : ''}`} key={`r${k}`}>
         <VehicleIcon mode={l.mode} moving={riding && departed(l, now)} />
-        <span class="rb-where-line">{lineName(l.line, l.mode, i.lang)}</span>
+        {detailed ? (
+          <>
+            <LineBadge l={l} />
+            <span class="rb-where-line">{l.headsign ? i.t('towards', { d: l.headsign }) : ''}</span>
+            {l.number && isTrain(l.mode) && !(l.line ?? '').includes(l.number) && <span class="rb-muted rb-small">{i.t('train', { n: l.number })}</span>}
+            {l.cancelled && <span class="rb-late">{i.t('cancelled')}</span>}
+            {bs.onBoard === k ? (
+              <span class={`rb-onboard ${avatar ? 'with-photo' : ''}`}>
+                {avatar && <img class="rb-onboard-photo" src={avatar} alt="" width={20} height={20} />}
+                {i.t('onBoardBadge')}
+              </span>
+            ) : checkin ? (
+              <span class="rb-muted rb-small">✓ {i.t('checkedIn', { time: i.time(checkin.at) })}</span>
+            ) : null}
+            {n > 0 && (
+              // Abfahrt der Fahrt (am Umstiegshalt) mit Gleis
+              <span class="rb-where-dep rb-small">
+                {i.t('depShort')} {l.from.plannedDeparture ? i.time(l.from.plannedDeparture) : '–'} <Delay d={depDelay(l.from)} />
+                <Track s={l.from} mode={l.mode} />
+              </span>
+            )}
+            {l.stopovers.length > 0 && (
+              <details class="rb-where-inner rb-small" open={riding}>
+                <summary class="rb-muted">{l.stopovers.length === 1 ? i.t('stop1') : i.t('stops', { n: l.stopovers.length })}</summary>
+                {l.stopovers.map((s, x) => (
+                  <span class={`rb-where-via ${reached(s, 'arr') ? 'passed' : ''} ${s.cancelled ? 'cancelled' : ''}`} key={x}>
+                    <span class="rb-where-via-time">
+                      {s.plannedArrival ? i.time(s.plannedArrival) : s.plannedDeparture ? i.time(s.plannedDeparture) : '–'} <Delay d={arrDelay(s)} />
+                    </span>
+                    <span>{s.stop.name}</span>
+                    <Track s={s} mode={l.mode} />
+                  </span>
+                ))}
+              </details>
+            )}
+          </>
+        ) : (
+          <>
+            <span class="rb-where-line">{lineName(l.line, l.mode, i.lang)}</span>
+            {/* in welchem Zug die Person laut Check-in sitzt – mit Foto */}
+            {bs.onBoard === k && (
+              <span class={`rb-onboard ${avatar ? 'with-photo' : ''}`}>
+                {avatar && <img class="rb-onboard-photo" src={avatar} alt="" width={20} height={20} />}
+                {i.t('onBoardBadge')}
+              </span>
+            )}
+          </>
+        )}
         {riding && ph.kind === 'riding' && (
           <span class="rb-where-progress">
             <span class="rb-bar" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(fraction * 100)}>
@@ -686,17 +645,30 @@ function Whereabouts({ j, now, boarding }: { j: Journey; now: number; boarding: 
       </>
     ) : tr ? (
       // an jedem Umstiegshalt die Person mit Rollkoffer; nur beim aktuellen Umstieg läuft sie (und ist größer)
-      <span class={`rb-where-change ${changing ? 'here' : ''}`}>
+      <span class={`rb-where-change ${changing ? 'here' : ''} state-${tr.state}`}>
         <WalkerIcon pace={walkPace(tr.bufferMin - tr.neededMin)} moving={changing} />
-        {changing ? i.t('changeTo', { line: lineName(j.legs[next].line, j.legs[next].mode, i.lang) }) : i.t('buffer', { n: tr.bufferMin })}
+        {changing ? i.t('changeTo', { line: lineName(j.legs[next].line, j.legs[next].mode, i.lang) }) : tr.state === 'done' ? i.t('transferDone') : i.t('buffer', { n: tr.bufferMin })}
+        {detailed && tr.state !== 'done' && (
+          <>
+            {(() => {
+              const walk = j.legs.slice(tr.fromLeg + 1, tr.toLeg).reduce((sum, w) => sum + (w.walkMin ?? 0), 0);
+              return walk ? <span> · {i.t('walk', { n: walk })}</span> : null;
+            })()}
+            {tr.state === 'tight' && <strong class="rb-busy-text"> · {i.t('tight')}</strong>}
+          </>
+        )}
       </span>
     ) : null;
-    stop(l.to, 'arr', `e${k}`, extra, changing || (next === undefined && ph.kind === 'arrived'));
+    stop(l.to, 'arr', `e${k}`, extra, changing || (next === undefined && ph.kind === 'arrived'), l.mode);
   });
+  const last = j.legs.at(-1);
   return (
-    <ol class="rb-where" data-title={i.t('whereTitle')}>
-      {rows}
-    </ol>
+    <>
+      <ol class="rb-where" data-title={i.t(detailed ? 'connectionTitle' : 'whereTitle')}>
+        {rows}
+      </ol>
+      {detailed && last?.kind === 'walk' && last.walkMin ? <p class="rb-muted rb-small">{i.t('walk', { n: last.walkMin })}</p> : null}
+    </>
   );
 }
 
