@@ -164,6 +164,27 @@
   font-weight: 700;
 }
 
+.rb-state-icon {
+  display: inline-flex;
+  align-items: center;
+}
+
+/* im Status etwas größer als an den Abschnitten */
+.rb-state-icon .rb-ico {
+  width: 48px;
+  height: 27px;
+}
+
+.rb-state-icon .rb-walker {
+  width: 34px;
+  height: 30px;
+}
+
+.rb-state-icon .rb-gag {
+  width: 36px;
+  height: 36px;
+}
+
 .rb-state-sub {
   flex-basis: 100%;
   padding-left: 22px;

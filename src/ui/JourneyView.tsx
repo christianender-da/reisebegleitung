@@ -180,25 +180,37 @@ function Status({ j, now, boarding }: { j: Journey; now: number; boarding: Board
   let kind: 'on' | 'busy' | 'off' | 'warn' = 'on';
   let text = '';
   let sub = '';
+  /** passendes Icon hinter dem Status: Fahrzeug, Person mit Rollkoffer oder (Anschluss weg) der weinende Zugkopf */
+  let icon: JSX.Element | null = null;
   if (bs.prompt?.kind === 'missed') {
     const l = j.legs[bs.prompt.leg];
+    icon = <MissedIcon />;
     kind = 'warn';
     text = i.t('altMissedTrain', { line: l.line ?? '' });
     sub = l.from.stop.name;
   } else if (ph.kind === 'before') {
     const l = j.legs[ph.legIndex];
     kind = 'off';
+    icon = <VehicleIcon mode={l.mode} moving={false} />;
     text = i.t('departsAt', { time: when(i, ph.departsAt) });
     const tr = l.from.track ?? l.from.plannedTrack;
     sub = [l.line, l.from.stop.name, tr ? trackText(i, l.mode, tr) : ''].filter(Boolean).join(' · ');
   } else if (ph.kind === 'riding') {
     kind = 'busy';
+    icon = <VehicleIcon mode={j.legs[ph.legIndex].mode} moving />;
     text = i.t(ph.onBoard ? 'onBoard' : 'riding', { line: j.legs[ph.legIndex].line ?? '' });
     const at = arrTime(ph.next) ?? depTime(ph.next);
     sub = i.t('nextStop', { name: ph.next.stop.name, time: at ? i.time(at) : '–' });
   } else if (ph.kind === 'transfer') {
     const l = j.legs[ph.legIndex];
     kind = 'busy';
+    const change = transfersOf(j, { boarding }).find((x) => x.toLeg === ph.legIndex);
+    icon =
+      change && (change.state === 'missed' || change.state === 'cancelled') ? (
+        <MissedIcon />
+      ) : (
+        <WalkerIcon pace={change ? walkPace(change.bufferMin - change.neededMin) : 'normal'} moving />
+      );
     text = i.t('changeAt', { at: ph.at.stop.name });
     const tr = l.from.track ?? l.from.plannedTrack;
     sub = [l.kind === 'ride' ? i.t('nextLeg', { line: l.line ?? '', time: when(i, ph.departsAt) }) : '', tr ? trackText(i, l.mode, tr) : '']
@@ -213,6 +225,7 @@ function Status({ j, now, boarding }: { j: Journey; now: number; boarding: Board
       <div class={`rb-state rb-state-${kind}`}>
         <span class="rb-dot" aria-hidden="true" />
         <span class="rb-state-text">{text}</span>
+        {icon && <span class="rb-state-icon">{icon}</span>}
         {sub && <span class="rb-muted rb-state-sub">{sub}</span>}
       </div>
       <div class="rb-arrival">
