@@ -91,6 +91,19 @@ body {
   padding: 16px;
 }
 
+/* Smartphone: keine Karte um die Reisen (die Reisen sind selbst Karten) – mehr Breite für lange Namen */
+@media (max-width: 560px) {
+  .card.journey {
+    background: none;
+    border: 0;
+    padding: 0;
+  }
+
+  .card.journey .rb-trip {
+    background: var(--card);
+  }
+}
+
 .card h2 {
   margin: 0 0 8px;
   font-size: 1.15rem;

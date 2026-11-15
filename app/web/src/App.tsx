@@ -218,7 +218,7 @@ function Main({ status, onLoggedOut }: { status: Status; onLoggedOut: () => void
       </div>
       {note && <p class="rb-muted">{note}</p>}
       {!status.configured && <div class="card notice">{TEXT.noContact}</div>}
-      <div class="card">
+      <div class="card journey">
         <JourneyView api={api} canEdit lang={lang} />
       </div>
       <p class="foot rb-small">

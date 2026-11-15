@@ -235,7 +235,7 @@ function Status({ j, now, boarding }: { j: Journey; now: number; boarding: Board
   }
   const pct = Math.round(p.fraction * 100);
   return (
-    <>
+    <div class="rb-status">
       <div class={`rb-state rb-state-${kind}`}>
         <span class="rb-dot" aria-hidden="true" />
         <span class="rb-state-text">{text}</span>
@@ -250,7 +250,7 @@ function Status({ j, now, boarding }: { j: Journey; now: number; boarding: Board
       <div class="rb-bar" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}>
         <span style={{ width: `${pct}%` }} />
       </div>
-    </>
+    </div>
   );
 }
 
@@ -313,7 +313,9 @@ function TripCard({ trip, canEdit, onChanged, onReplan }: { trip: AnyTrip; canEd
       {canEdit && bs.prompt && !(bs.prompt.kind === 'missed' && trip.alternatives?.options.length) && (
         <BoardingPrompt trip={trip} prompt={bs.prompt} onChanged={onChanged} onReplan={onReplan} />
       )}
-      <ol class="rb-legs">{items}</ol>
+      <ol class="rb-legs" data-title={i.t('connectionTitle')}>
+        {items}
+      </ol>
       {lastWalk ? <p class="rb-muted rb-small">{i.t('walk', { n: lastWalk })}</p> : null}
       {trip.stale && trip.refreshedAt && <p class="rb-muted rb-small">{i.t('stale', { time: i.time(trip.refreshedAt) })}</p>}
       {canEdit && sharing && <SharePanel trip={trip} />}
@@ -956,9 +958,13 @@ function ResultItem({ j, onTake, busy, option }: { j: Journey; onTake?: () => vo
     <li class="rb-result">
       <div class="rb-result-times">
         <strong>
-          {first.from.plannedDeparture ? i.time(first.from.plannedDeparture) : '–'} <Delay d={depDelay(first.from)} />
+          <span class="rb-nowrap">
+            {first.from.plannedDeparture ? i.time(first.from.plannedDeparture) : '–'} <Delay d={depDelay(first.from)} />
+          </span>
           {' → '}
-          {last.to.plannedArrival ? i.time(last.to.plannedArrival) : '–'} <Delay d={arrDelay(last.to)} />
+          <span class="rb-nowrap">
+            {last.to.plannedArrival ? i.time(last.to.plannedArrival) : '–'} <Delay d={arrDelay(last.to)} />
+          </span>
         </strong>
         <span class="rb-muted rb-small">
           {duration(j)} · {n === 0 ? i.t('direct') : n === 1 ? i.t('transfer1') : i.t('transfers', { n })}

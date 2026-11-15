@@ -192,16 +192,28 @@
 
 .rb-root {
   display: grid;
-  gap: 14px;
+  gap: 20px;
 }
 
 .rb-trip {
   background: var(--rb-bg);
   border: 1px solid var(--rb-line);
   border-radius: 12px;
-  padding: 12px 14px;
+  padding: 16px;
   display: grid;
-  gap: 8px;
+  gap: 16px;
+}
+
+/* Status, Ankunft und Fortschrittsbalken bilden einen Block */
+.rb-status {
+  display: grid;
+  gap: 6px;
+}
+
+/* Knöpfe unten (Teilen / Reise löschen) durch eine Linie vom Reiseverlauf getrennt */
+.rb-trip > .rb-row:last-child {
+  padding-top: 12px;
+  border-top: 1px solid var(--rb-line);
 }
 
 .rb-head {
@@ -272,14 +284,26 @@
 .rb-legs {
   list-style: none;
   margin: 0;
-  padding: 0;
+  padding: 12px 0 0;
+  border-top: 1px solid var(--rb-line);
   display: grid;
-  gap: 6px;
+  gap: 2px;
+}
+
+/* Abschnitt „Verbindung“ (Überschrift aus data-title) */
+.rb-legs::before {
+  content: attr(data-title);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--rb-muted);
+  margin-bottom: 6px;
 }
 
 .rb-leg {
   border-left: 3px solid var(--rb-line);
-  padding: 4px 0 4px 10px;
+  padding: 8px 0 8px 12px;
 }
 
 .rb-leg.current {
@@ -295,7 +319,7 @@
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
-  margin-bottom: 4px;
+  margin-bottom: 8px;
 }
 
 .rb-dir {
@@ -357,7 +381,7 @@
   grid-template-columns: 5.6em 1fr auto;
   gap: 2px 8px;
   align-items: baseline;
-  padding: 2px 0;
+  padding: 3px 0;
   font-size: 0.95rem;
 }
 
@@ -416,7 +440,7 @@
   align-items: center;
   font-size: 0.85rem;
   color: var(--rb-muted);
-  padding: 2px 0 2px 13px;
+  padding: 10px 0 10px 13px;
 }
 
 .rb-transfer .rb-dot {
@@ -484,6 +508,11 @@
   display: grid;
   gap: 2px;
   font-variant-numeric: tabular-nums;
+}
+
+/* Uhrzeit und Verspätung bleiben zusammen; umgebrochen wird höchstens am Pfeil */
+.rb-nowrap {
+  white-space: nowrap;
 }
 
 .rb-result-lines {
@@ -697,7 +726,7 @@
 
 /* Testfahrt-Hinweis */
 .rb-demo {
-  margin: 0 0 8px;
+  margin: 0;
   padding: 6px 10px;
   border-radius: 8px;
   background: color-mix(in srgb, var(--rb-busy) 14%, transparent);
