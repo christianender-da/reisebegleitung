@@ -149,3 +149,25 @@ test('Testfahrt im Service: ohne Transitous, ohne IRIS, nicht im Hintergrund', a
   assert.equal(bg.refreshed, 0);
   assert.deepEqual(calls.filter((c) => !c.startsWith('stops:')), []);
 });
+
+test('Testfahrt: „Alternativen anzeigen“ im Bus, früherer verspäteter RE übernehmen, zurück', async () => {
+  const store = memStore();
+  const client = { searchStops: async () => [], plan: async () => { throw new Error('kein Netz'); }, trip: async () => null } as unknown as TransitousClient;
+  const service = createJourneyService({ store, userAgent: 'test/1', client, cache: null });
+  const res = await service.plan({ from: DEMO_STOP.id, to: DEMO_STOP.id, arriveBy: false, ticket: 'flex', dticket: false });
+  const id = await service.createTrip('w1', 'me', { planId: res.planId, index: 0, ticket: 'flex', dticket: false });
+  // auf Szene 2 (im Bus, kurz vor Musterplatz) stellen: Anlegen 1 min zurückdatieren
+  store.rows[0].createdAt = new Date(Date.now() - 60_000).toISOString();
+  const v = await service.searchAlternatives('w1', id);
+  assert.equal(v.demo?.key, 'bus');
+  assert.equal(v.alternatives?.reason, 'manual');
+  assert.equal(v.alternatives?.origin.name, 'Musterplatz');
+  assert.deepEqual(v.alternatives?.options.map((o) => o.journey.legs[0].line), ['RE 98', 'RB 12']);
+  const taken = await service.chooseAlternative('w1', id, 0);
+  assert.equal(taken.replaced, true);
+  assert.equal(taken.replacedFrom, 1);
+  assert.equal(taken.journey.legs[1].line, 'RE 98');
+  const back = await service.revertTrip('w1', id);
+  assert.equal(back.journey.legs[2].line, '7');
+  assert.notEqual(back.alternatives?.reason, 'manual');
+});

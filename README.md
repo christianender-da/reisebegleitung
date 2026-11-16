@@ -22,6 +22,9 @@ as building blocks for your own dashboard, or as a self-hosted Cloudflare app wi
   Hinweis, ob sie mit dem Ticket nutzbar sind (Zugbindung aufgehoben, Deutschlandticket); „Übernehmen“ ersetzt die
   restliche Reise; **jederzeit zurück zur ursprünglichen Verbindung** („↩ Zurück zur ursprünglichen Verbindung“, Check-ins auf dem
   gemeinsamen Anfang bleiben, danach Live-Abgleich – passt sie weiterhin nicht, erscheinen wieder Alternativen)
+- **„Alternativen anzeigen“** ab 10 min vor der Ankunft am Umstiegshalt (und beim Umsteigen, bis der Anschluss abfährt): andere
+  Verbindungen ab dort mit Echtzeit – z. B. ein verspäteter früherer Zug; nur auf Knopfdruck, ohne Benachrichtigung, „Übernehmen“
+  und „Zurück“ wie bei anderen Alternativen
 - **Benachrichtigungen** per Web Push (ohne Zusatz-App; auf iPhone/iPad nach „Zum Home-Bildschirm“)
 - **Teilen-Links** für Familie und Freunde: Reise live verfolgen ohne Anmeldung (inkl. „An Bord“, ohne Ticketangaben),
   gültig bis 2 h nach der tatsächlichen Ankunft, jederzeit widerrufbar; Umschalter „Reduziert“ (Standard: Fokus auf den aktuellen Ort –

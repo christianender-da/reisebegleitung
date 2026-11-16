@@ -8,6 +8,8 @@
  *   POST   /trips/<id>/boarding  { leg, action: checkin|missed|undo }    (canEdit)
  *   POST   /trips/<id>/alternative  { index }                           (canEdit)
  *   POST   /trips/<id>/original     zurück zur ursprünglichen Verbindung  (canEdit)
+ *   POST   /trips/<id>/alternatives  „Alternativen anzeigen“ kurz vor dem Umstiegshalt (canEdit; 409 not-now außerhalb)
+ *   DELETE /trips/<id>/alternatives  selbst gesuchte Alternativen ausblenden (canEdit)
  *   GET    /trips/<id>/shares                                           (canEdit)  → { shares }
  *   POST   /trips/<id>/shares  { label }                                (canEdit)  → { share: { id, token, expiresAt, … } }
  *   DELETE /trips/<id>/shares/<shareId>                                 (canEdit)
@@ -49,7 +51,7 @@ function image(a: Avatar | null, maxAge: number): Response {
 }
 
 const status = (code: string) =>
-  code === 'bad-request' || code === 'plan-expired' ? 400 : code === 'not-found' ? 404 : code === 'push-off' || code === 'too-many' ? 409 : code === 'expired' ? 410 : 502;
+  code === 'bad-request' || code === 'plan-expired' ? 400 : code === 'not-found' ? 404 : code === 'push-off' || code === 'too-many' || code === 'not-now' ? 409 : code === 'expired' ? 410 : 502;
 
 /**
  * path: Pfad unterhalb des Einhängepunkts, z. B. „/trips“ (bei Einhängen unter /api/journey der Rest nach /api/journey)
@@ -92,6 +94,12 @@ export async function handleJourneyRequest(service: JourneyService, request: Req
         await service.revokeShare(ctx.scope, tripId, decodeURIComponent(parts[3]));
         return json({ ok: true });
       }
+    }
+    if (parts[0] === 'trips' && parts.length === 3 && parts[2] === 'alternatives' && method === 'POST') {
+      return json({ trip: await service.searchAlternatives(ctx.scope, decodeURIComponent(parts[1])) });
+    }
+    if (parts[0] === 'trips' && parts.length === 3 && parts[2] === 'alternatives' && method === 'DELETE') {
+      return json({ trip: await service.dismissAlternatives(ctx.scope, decodeURIComponent(parts[1])) });
     }
     if (parts[0] === 'trips' && parts.length === 3 && parts[2] === 'original' && method === 'POST') {
       return json({ trip: await service.revertTrip(ctx.scope, decodeURIComponent(parts[1])) });

@@ -439,3 +439,49 @@ test('Foto: nur echte JPEG/PNG/WebP, für Betrachter sichtbar, über Teilen-Link
   assert.equal((await handleJourneyRequest(service, req('/avatar'), '/avatar', view)).status, 404);
   assert.equal((await (await handleJourneyRequest(service, req('/trips'), '/trips', view)).json()).avatar, null);
 });
+
+test('„Alternativen anzeigen“ kurz vor dem Umstiegshalt: Fenster, Suche, bleibt stehen, ausblenden', async () => {
+  const { changeWindow } = await import('../src/core/alternatives.ts');
+  const base = motisJourney(plan.itineraries[1]); // S6 nach Frankfurt Süd (mit Echtzeit), danach NJ
+  const s6arr = Date.parse(base.legs[0].to.arrival ?? base.legs[0].to.plannedArrival!);
+  // S6 kommt in 8 min an → Fenster offen; 11 min vorher noch nicht; letzte Fahrt nie; nach Abfahrt des NJ nicht mehr
+  const at = (min: number) => s6arr + min * 60_000;
+  assert.equal(changeWindow(base, emptyBoarding(), at(-11)), null);
+  const w = changeWindow(base, emptyBoarding(), at(-8))!;
+  assert.equal(w.keepLegs, 1);
+  assert.equal(w.origin.name, 'Frankfurt (Main) Südbahnhof');
+  assert.ok(changeWindow(base, emptyBoarding(), at(3)), 'beim Umsteigen weiter angeboten');
+  const njDep = Date.parse(base.legs[2].from.departure ?? base.legs[2].from.plannedDeparture!);
+  assert.equal(changeWindow(base, emptyBoarding(), njDep + 60_000), null, 'nach Abfahrt des Anschlusses');
+  assert.equal(changeWindow(base, emptyBoarding(), at(60)), null);
+
+  // Service: Reise so verschoben, dass die S6 in 5 min in Frankfurt Süd ankommt
+  const store = memoryStore();
+  const calls: string[] = [];
+  const service = createJourneyService({ store, userAgent: 'test/1', cache: null, client: { ...fakeClient, plan: async (p) => (calls.push(`plan:${p.from}`), plan.itineraries.map(motisJourney)), trip: async () => null } });
+  const j = shift(base, Date.now() + 5 * 60_000 - s6arr);
+  const t = new Date().toISOString();
+  store.rows.push({ id: 'trip1', scope: 'w1', owner: 'me', ticket: 'flex', dticket: false, plannedJourney: j, journey: j, departAt: j.legs[0].from.plannedDeparture!, arriveAt: j.legs[2].to.plannedArrival!, refreshedAt: t, createdAt: t, boarding: emptyBoarding(), alternatives: null });
+  const ctx = { scope: 'w1', owner: 'me', canEdit: true };
+  const res = await handleJourneyRequest(service, req('/trips/trip1/alternatives', { method: 'POST', body: '{}' }), '/trips/trip1/alternatives', ctx);
+  assert.equal(res.status, 200);
+  const trip = (await res.json()).trip;
+  assert.equal(trip.alternatives.reason, 'manual');
+  assert.equal(trip.alternatives.keepLegs, 1);
+  assert.deepEqual(calls, [`plan:${j.legs[0].to.stop.id}`]);
+  // die geplante Weiterfahrt (NJ) wird nicht noch einmal angeboten
+  const nj = j.legs[2].tripId;
+  assert.ok(trip.alternatives.options.every((o: { journey: Journey }) => o.journey.legs.find((l) => l.kind === 'ride')?.tripId !== nj));
+  // Hintergrund-Abgleich überschreibt die selbst gesuchten Alternativen nicht
+  store.rows[0].refreshedAt = '2026-01-01T00:00:00Z';
+  await service.refreshActive();
+  assert.equal(store.rows[0].alternatives?.reason, 'manual');
+  // Empfänger von Teilen-Links: kein Recht zur Suche
+  assert.equal((await handleJourneyRequest(service, req('/trips/trip1/alternatives', { method: 'POST', body: '{}' }), '/trips/trip1/alternatives', { ...ctx, canEdit: false })).status, 403);
+  // ausblenden
+  const hidden = await handleJourneyRequest(service, req('/trips/trip1/alternatives', { method: 'DELETE' }), '/trips/trip1/alternatives', ctx);
+  assert.equal((await hidden.json()).trip.alternatives, null);
+  // außerhalb des Fensters: 409
+  store.rows[0] = { ...store.rows[0], journey: shift(j, 3600_000), plannedJourney: shift(j, 3600_000) };
+  assert.equal((await handleJourneyRequest(service, req('/trips/trip1/alternatives', { method: 'POST', body: '{}' }), '/trips/trip1/alternatives', ctx)).status, 409);
+});
