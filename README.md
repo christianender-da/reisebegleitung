@@ -187,6 +187,20 @@ node scripts/render-icons.mjs
 
 Ein schon abgelegtes Home-Bildschirm-Symbol übernimmt ein neues Icon erst nach Entfernen und erneutem „Zum Home-Bildschirm“.
 
+### Startbild (Splash-Screen)
+
+**Android** baut den Startbildschirm selbst aus dem Manifest: Icon auf `background_color` (`#0f4f63`).
+**iOS/iPadOS** zeigt nur ein `apple-touch-startup-image`, das pixelgenau zur Fenstergröße passt – deshalb liegt in
+`app/web/public/splash/` je Gerät und Ausrichtung ein PNG (Zug mit Strecke auf dem Verlauf der Icon-Farben), eingebunden in
+`app/web/index.html`. Abgedeckt sind iPhone 17 (402 × 874 pt, @3x) und iPad Pro 11″ (834 × 1194 pt, @2x); andere Geräte
+starten wie bisher ohne Bild. Neu erzeugen bzw. ein Gerät ergänzen (Liste `DEVICES` im Skript, dann die `<link>`-Zeilen):
+
+```bash
+node scripts/render-splash.mjs
+```
+
+Auch das Startbild erscheint erst nach Entfernen und erneutem Ablegen auf dem Home-Bildschirm.
+
 ## Nutzungsregeln von Transitous
 
 Transitous wird von Freiwilligen betrieben. Wer `api.transitous.org` nutzt, muss die
