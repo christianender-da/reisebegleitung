@@ -33,6 +33,9 @@ export interface JourneyApi {
   deleteTrip(id: string): Promise<void>;
   board(id: string, leg: number, action: 'checkin' | 'missed' | 'undo'): Promise<{ trip: TripView }>;
   chooseAlternative(id: string, index: number): Promise<{ trip: TripView }>;
+  /** „Alternativen anzeigen“ kurz vor dem Umstiegshalt / selbst gesuchte ausblenden */
+  searchAlternatives(id: string): Promise<{ trip: TripView }>;
+  dismissAlternatives(id: string): Promise<{ trip: TripView }>;
   /** zurück zur ursprünglichen Verbindung */
   revertTrip(id: string): Promise<{ trip: TripView }>;
   shares(id: string): Promise<{ shares: ShareInfo[] }>;
@@ -85,6 +88,8 @@ export function createJourneyApi(base: string, opts: ApiOptions = {}): JourneyAp
     },
     board: (id, leg, action) => call(`/trips/${encodeURIComponent(id)}/boarding`, { body: { leg, action } }),
     chooseAlternative: (id, index) => call(`/trips/${encodeURIComponent(id)}/alternative`, { body: { index } }),
+    searchAlternatives: (id) => call(`/trips/${encodeURIComponent(id)}/alternatives`, { body: {} }),
+    dismissAlternatives: (id) => call(`/trips/${encodeURIComponent(id)}/alternatives`, { method: 'DELETE' }),
     revertTrip: (id) => call(`/trips/${encodeURIComponent(id)}/original`, { body: {} }),
     shares: (id) => call(`/trips/${encodeURIComponent(id)}/shares`),
     createShare: (id, label) => call(`/trips/${encodeURIComponent(id)}/shares`, { body: { label } }),

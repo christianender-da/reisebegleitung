@@ -1337,3 +1337,25 @@
 .rb-busy-text {
   color: var(--rb-busy);
 }
+
+/* „Alternativen anzeigen“ kurz vor dem Umstiegshalt; selbst gesuchte Alternativen neutral statt rot */
+.rb-change-offer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--rb-accent) 45%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--rb-accent) 8%, var(--rb-card));
+  font-size: 0.9rem;
+}
+
+.rb-alts.manual {
+  border-color: color-mix(in srgb, var(--rb-accent) 45%, transparent);
+  background: color-mix(in srgb, var(--rb-accent) 6%, var(--rb-card));
+}
+
+.rb-alts.manual .rb-alts-title {
+  color: var(--rb-text);
+}

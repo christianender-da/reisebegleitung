@@ -15,6 +15,7 @@ import {
   depDelay,
   depTime,
   journeyEnds,
+  changeWindow,
   lineName,
   progress,
   rides,
@@ -210,6 +211,10 @@ function TripCard({ trip, canEdit, onChanged, onReplan }: { trip: AnyTrip; canEd
   const ends = journeyEnds(j);
   const bs = boardingState(j, boarding, now);
   const start = j.legs[0]?.from.plannedDeparture;
+  // kurz vor dem Umstiegshalt: „Alternativen anzeigen“ (nur wer bearbeiten darf)
+  const change = canEdit ? changeWindow(j, boarding, now) : null;
+  // selbst gesuchte Alternativen sehen Empfänger von Teilen-Links nicht
+  const alts = trip.alternatives && (canEdit || trip.alternatives.reason !== 'manual') ? trip.alternatives : null;
 
   const [sharing, setSharing] = useState(false);
 
@@ -242,11 +247,14 @@ function TripCard({ trip, canEdit, onChanged, onReplan }: { trip: AnyTrip; canEd
       )}
       <Status j={j} now={now} boarding={boarding} />
       {trip.replaced && <RevertBox trip={trip} canEdit={canEdit} onChanged={onChanged} />}
-      {trip.alternatives &&
+      {canEdit && change && trip.replacedFrom !== change.keepLegs && !(trip.alternatives && trip.alternatives.origin.id === change.origin.id) && (
+        <ChangeOffer trip={trip} at={change.origin.name} arrives={change.time} onChanged={onChanged} />
+      )}
+      {alts &&
         (compact ? (
           <p class="rb-alt-note">
             <MissedIcon />
-            <span>{altTitle(i, trip.alternatives)}</span>
+            <span>{altTitle(i, alts)}</span>
           </p>
         ) : (
           <AlternativesBox trip={trip} canEdit={canEdit} onChanged={onChanged} />
@@ -526,8 +534,40 @@ function RevertBox({ trip, canEdit, onChanged }: { trip: AnyTrip; canEdit: boole
   );
 }
 
+/** Kurz vor dem Umstiegshalt: Hinweis + „Alternativen anzeigen“ (z. B. ein verspäteter früherer Zug) */
+function ChangeOffer({ trip, at, arrives, onChanged }: { trip: AnyTrip; at: string; arrives: string; onChanged: () => void }) {
+  const { api, i } = useContext(Ctx);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(false);
+  const min = Math.round((Date.parse(arrives) - Date.now()) / 60_000);
+
+  async function search() {
+    setBusy(true);
+    setError(false);
+    try {
+      await api.searchAlternatives(trip.id);
+      onChanged();
+    } catch {
+      setError(true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div class="rb-change-offer">
+      <span>{min > 0 ? i.t('changeOfferSoon', { min, stop: at }) : i.t('changeOfferNow', { stop: at })}</span>
+      <button type="button" class="rb-btn rb-btn-small rb-primary" disabled={busy} onClick={search}>
+        {busy ? i.t('loading') : i.t('showAlternatives')}
+      </button>
+      {error && <span class="rb-error rb-small">{i.t('searchFailed')}</span>}
+    </div>
+  );
+}
+
 /** Überschrift zu Alternativen („Anschluss Bus 42 nicht erreichbar“ …) */
 function altTitle(i: I18n, a: NonNullable<AnyTrip['alternatives']>) {
+  if (a.reason === 'manual') return i.t('altManual', { stop: a.origin.name });
   return i.t(a.reason === 'connection' ? 'altConnection' : a.reason === 'cancelled' ? 'altCancelled' : 'altMissedTrain', {
     line: a.line || a.mode ? lineName(a.line, a.mode, i.lang) : '',
   });
@@ -678,6 +718,19 @@ function AlternativesBox({ trip, canEdit, onChanged }: { trip: AnyTrip; canEdit:
   const [error, setError] = useState(false);
   const a = trip.alternatives!;
   const title = altTitle(i, a);
+  const manual = a.reason === 'manual';
+
+  async function dismiss() {
+    setBusy(true);
+    try {
+      await api.dismissAlternatives(trip.id);
+      onChanged();
+    } catch {
+      setError(true);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function take(index: number) {
     if (!confirm(i.t('altConfirm'))) return;
@@ -694,8 +747,16 @@ function AlternativesBox({ trip, canEdit, onChanged }: { trip: AnyTrip; canEdit:
   }
 
   return (
-    <div class="rb-alts">
-      <p class="rb-alts-title">{title}</p>
+    <div class={`rb-alts ${manual ? 'manual' : ''}`}>
+      <div class="rb-row">
+        <p class="rb-alts-title">{title}</p>
+        <span class="rb-spacer" />
+        {manual && canEdit && (
+          <button type="button" class="rb-btn rb-btn-small" disabled={busy} onClick={dismiss}>
+            {i.t('altHide')}
+          </button>
+        )}
+      </div>
       <p class="rb-muted rb-small">
         {i.t('altFrom', { stop: a.origin.name, time: i.time(a.time) })}
         {a.bindingLifted && trip.ticket === 'spar' ? ` · ${i.t('altLiftedNote')}` : ''}

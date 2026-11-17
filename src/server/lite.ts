@@ -76,6 +76,7 @@ export function renderSharedLite(result: SharedResult, lang: Lang = 'de', opts: 
     const arr = p.plannedArrival ? i.time(p.plannedArrival) : '–';
     const late = p.delayMin !== undefined && p.delayMin > 0 && p.arrival ? ` <b>+${p.delayMin}</b> → ${i.time(p.arrival)}` : p.delayMin !== undefined ? ` (${esc(i.t('onTime'))})` : '';
     const alt = trip.alternatives
+      && trip.alternatives.reason !== 'manual'
       ? `<p class="warn">${esc(i.t(trip.alternatives.reason === 'connection' ? 'altConnection' : trip.alternatives.reason === 'cancelled' ? 'altCancelled' : 'altMissedTrain', { line: lineName(trip.alternatives.line, trip.alternatives.mode, i.lang) }))}</p>`
       : '';
     body = `

@@ -11,7 +11,7 @@
  */
 import { boardingState, type Boarding } from './boarding.ts';
 import { arrTime, depTime, journeyEnd, ms } from './journey.ts';
-import { transfers } from './progress.ts';
+import { progress, transfers } from './progress.ts';
 import { bindingLifted, coverage, type Coverage, type TicketContext } from './tickets.ts';
 import type { Journey, Mode, Stop } from './types.ts';
 
@@ -21,7 +21,9 @@ export type AlternativeReason =
   /** Umstieg wegen Verspätung nicht erreichbar */
   | 'connection'
   /** Anschluss bzw. Zug fällt aus */
-  | 'cancelled';
+  | 'cancelled'
+  /** selbst gesucht („Alternativen anzeigen“ kurz vor dem Umstiegshalt) – z. B. ein verspäteter früherer Zug */
+  | 'manual';
 
 export interface AlternativeTrigger {
   reason: AlternativeReason;
@@ -37,6 +39,49 @@ export interface AlternativeTrigger {
   mode?: Mode;
   /** stabiler Schlüssel: gleicher Auslöser → keine neue Suche/Benachrichtigung */
   key: string;
+}
+
+/** So viele Minuten vor der Ankunft am Umstiegshalt wird „Alternativen anzeigen“ angeboten */
+export const CHANGE_WINDOW_MIN = 10;
+
+export interface ChangeWindow {
+  /** Fahrt, die am Umstiegshalt ankommt */
+  leg: number;
+  /** bleibende Abschnitte bei „Übernehmen“ (bis einschließlich dieser Fahrt) */
+  keepLegs: number;
+  origin: Stop;
+  /** frühestens ab (erwartete Ankunft, sonst jetzt) */
+  time: string;
+  /** bis wann angeboten wird (Abfahrt des geplanten Anschlusses) */
+  until: string;
+  key: string;
+}
+
+/**
+ * Kurz vor dem Umstiegshalt (10 min vor der erwarteten Ankunft) und beim Umsteigen, bis der geplante Anschluss abfährt:
+ * Hier lohnt sich ein Blick auf andere Verbindungen – etwa ein verspäteter früherer Zug. Nicht an der letzten Fahrt.
+ */
+export function changeWindow(j: Journey, boarding: Boarding | undefined, now = Date.now()): ChangeWindow | null {
+  const rides = j.legs.flatMap((l, k) => (l.kind === 'ride' ? [k] : []));
+  const ph = progress(j, now, boarding).phase;
+  let pos = -1;
+  if (ph.kind === 'riding') pos = rides.indexOf(ph.legIndex);
+  else if (ph.kind === 'transfer') pos = rides.indexOf(ph.legIndex) - 1;
+  if (pos < 0 || pos >= rides.length - 1) return null;
+  const k = rides[pos];
+  const l = j.legs[k];
+  const arr = ms(arrTime(l.to));
+  const next = j.legs[rides[pos + 1]];
+  const dep = ms(depTime(next.from));
+  if (!Number.isFinite(arr) || !Number.isFinite(dep) || now < arr - CHANGE_WINDOW_MIN * 60_000 || now >= dep) return null;
+  return {
+    leg: k,
+    keepLegs: k + 1,
+    origin: l.to.stop,
+    time: new Date(Math.max(arr, now)).toISOString(),
+    until: new Date(dep).toISOString(),
+    key: `manual:${k + 1}:${l.to.stop.id}`,
+  };
 }
 
 export function alternativesTrigger(j: Journey, boarding: Boarding | undefined, now = Date.now()): AlternativeTrigger | null {

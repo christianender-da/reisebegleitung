@@ -9,6 +9,9 @@ import {
   lineName,
   alternativesTrigger,
   applyBoarding,
+  bindingLifted,
+  changeWindow,
+  demoManualJourneys,
   DEMO_KEEP_LEGS,
   DEMO_SCENES,
   isReplaced,
@@ -83,6 +86,8 @@ export interface TripView {
   stale?: boolean;
   /** eine Alternative wurde übernommen – „Zurück zur ursprünglichen Verbindung“ möglich */
   replaced?: boolean;
+  /** ab diesem Abschnitt weicht die Reise von der ursprünglichen ab (nach „Übernehmen“) */
+  replacedFrom?: number;
   /** Testfahrt ab der Testhaltestelle: aktuelle Szene (wechselt jede Minute) */
   demo?: { scene: number; scenes: number; key: string; next: string };
 }
@@ -115,6 +120,8 @@ const EARLY_REFRESH_MS = 5 * 60_000;
 const ALT_REFRESH_MS = 10 * 60_000;
 const ALT_RESULTS = 4;
 const MAX_REFRESH_PER_RUN = 3;
+/** selbst gesuchte Alternativen so lange nach der Abfahrt des geplanten Anschlusses noch zeigen */
+const MANUAL_KEEP_MS = 10 * 60_000;
 /** Teilen-Links gelten bis so lange nach der (Echtzeit-)Ankunft */
 export const SHARE_AFTER_ARRIVAL_MS = 2 * 3600_000;
 const MAX_SHARES_PER_TRIP = 10;
@@ -223,6 +230,8 @@ export function createJourneyService(opts: JourneyServiceOptions) {
 
   /** Alternativen pflegen: neu suchen bei neuem Auslöser (und alle 10 min), löschen, wenn alles wieder passt */
   async function maintainAlternatives(r: TripRecord, t: number): Promise<TripRecord> {
+    // selbst gesuchte Alternativen bleiben bis kurz nach der geplanten Abfahrt des Anschlusses stehen (keine automatische Suche, kein Push)
+    if (r.alternatives?.reason === 'manual' && t < Date.parse(r.alternatives.until ?? r.alternatives.time) + MANUAL_KEEP_MS) return r;
     const trigger = alternativesTrigger(r.journey, r.boarding, t);
     if (!trigger) {
       if (r.alternatives) await store.setAlternatives(r.id, null);
@@ -297,8 +306,9 @@ export function createJourneyService(opts: JourneyServiceOptions) {
    */
   /** Testfahrt: gewählte Alternative (Index in der sortierten Liste) als Einstellung je Reise */
   const demoChoiceKey = (id: string) => `demo-alt:${id}`;
+  const demoManualKey = (id: string) => `demo-manual:${id}`;
 
-  async function demoRecord(r: TripRecord, t: number): Promise<{ record: TripRecord; demo: NonNullable<TripView['demo']>; replaced: boolean }> {
+  async function demoRecord(r: TripRecord, t: number): Promise<{ record: TripRecord; demo: NonNullable<TripView['demo']>; replaced: boolean; replacedFrom?: number }> {
     const sc = demoScene(t, Date.parse(r.createdAt) || 0);
     const original = demoJourney(sc.start);
     const boarding = { checkins: r.boarding.checkins.filter((e) => Date.parse(e.at) >= sc.round), missed: r.boarding.missed.filter((e) => Date.parse(e.at) >= sc.round) };
@@ -307,25 +317,53 @@ export function createJourneyService(opts: JourneyServiceOptions) {
     const options = demoAlternativeJourneys(sc.start)
       .map((j) => rateAlternative(j, ctx, { bindingLifted: true, bookedTripIds: [] }))
       .sort((a, b) => Number(b.covered) - Number(a.covered) || Date.parse(journeyEnd(a.journey) ?? '') - Date.parse(journeyEnd(b.journey) ?? ''));
-    // gespeichert als „<Index>@<Zeitpunkt>“
-    const [idx, when] = ((await store.getPref(r.scope, demoChoiceKey(r.id))) ?? '').split('@');
-    const chosen = idx && Date.parse(when) >= sc.round ? options[Number(idx)] : undefined;
-    const journey = chosen ? replaceRemainder(original, boarding, DEMO_KEEP_LEGS, chosen.journey).journey : original;
+    const rate = (js: Journey[], lifted: boolean) =>
+      js
+        .map((j) => rateAlternative(j, ctx, { bindingLifted: lifted, bookedTripIds: [] }))
+        .sort((a, b) => Number(b.covered) - Number(a.covered) || Date.parse(journeyEnd(a.journey) ?? '') - Date.parse(journeyEnd(b.journey) ?? ''));
+    // Wahl gespeichert als „<Index>@<Zeitpunkt>“ bzw. „<Index>@<Zeitpunkt>@<bleibende Abschnitte>“ (selbst gesucht)
+    const [idx, when, keepRaw] = ((await store.getPref(r.scope, demoChoiceKey(r.id))) ?? '').split('@');
+    const keep = Number(keepRaw) || DEMO_KEEP_LEGS;
+    const chosenFrom = keepRaw ? rate(demoManualJourneys(sc.start, keep), false) : options;
+    const chosen = idx && Date.parse(when) >= sc.round ? chosenFrom[Number(idx)] : undefined;
+    const journey = chosen ? replaceRemainder(original, boarding, keep, chosen.journey).journey : original;
     const trigger = alternativesTrigger(journey, boarding, t);
-    const alternatives: StoredAlternatives | null = trigger
+    let alternatives: StoredAlternatives | null = trigger
       ? { key: trigger.key, reason: trigger.reason, keepLegs: trigger.keepLegs, origin: trigger.origin, time: trigger.time, line: trigger.line, mode: trigger.mode, bindingLifted: liftedFor(journey, trigger), computedAt: new Date(t).toISOString(), options }
       : null;
+    // „Alternativen anzeigen“ (selbst gesucht) in dieser Runde – solange das Umstiegsfenster offen ist
+    const manualAt = Date.parse((await store.getPref(r.scope, demoManualKey(r.id))) ?? '');
+    const w = !chosen && manualAt >= sc.round ? changeWindow(journey, boarding, t) : null;
+    if (w) {
+      alternatives = {
+        key: w.key,
+        reason: 'manual',
+        keepLegs: w.keepLegs,
+        origin: w.origin,
+        time: w.time,
+        until: w.until,
+        bindingLifted: false,
+        computedAt: new Date(t).toISOString(),
+        options: rate(demoManualJourneys(sc.start, w.keepLegs), false),
+      };
+    }
     return {
       record: { ...r, journey, boarding, alternatives, refreshedAt: new Date(t).toISOString() },
       demo: { scene: sc.index + 1, scenes: DEMO_SCENES.length, key: sc.key, next: new Date(sc.next).toISOString() },
       replaced: !!chosen,
+      replacedFrom: chosen ? keep : undefined,
     };
   }
 
-  function view({ record: r, stale, demo, replaced }: { record: TripRecord; stale?: boolean; demo?: TripView['demo']; replaced?: boolean }, t: number): TripView {
+  function view(
+    { record: r, stale, demo, replaced, replacedFrom }: { record: TripRecord; stale?: boolean; demo?: TripView['demo']; replaced?: boolean; replacedFrom?: number },
+    t: number,
+  ): TripView {
+    const isRepl = replaced ?? (!demo && isReplaced(r.journey, r.plannedJourney));
     return {
       demo,
-      replaced: (replaced ?? (!demo && isReplaced(r.journey, r.plannedJourney))) || undefined,
+      replaced: isRepl || undefined,
+      replacedFrom: isRepl ? (replacedFrom ?? sharedPrefix(r.journey, r.plannedJourney)) : undefined,
       id: r.id,
       ticket: r.ticket,
       dticket: r.dticket,
@@ -550,7 +588,8 @@ export function createJourneyService(opts: JourneyServiceOptions) {
         // Testfahrt: Wahl merken; die Szenen laufen mit der neuen Verbindung weiter
         const cur = await demoRecord(r, Date.now());
         if (typeof index !== 'number' || !cur.record.alternatives?.options[index]) throw new JourneyError('bad-request');
-        await store.setPref(scope, demoChoiceKey(id), `${index}@${nowIso()}`);
+        const manual = cur.record.alternatives?.reason === 'manual';
+        await store.setPref(scope, demoChoiceKey(id), manual ? `${index}@${nowIso()}@${cur.record.alternatives!.keepLegs}` : `${index}@${nowIso()}`);
         return view(await demoRecord(r, Date.now()), Date.now());
       }
       const option = typeof index === 'number' ? r.alternatives?.options[index] : undefined;
@@ -565,6 +604,53 @@ export function createJourneyService(opts: JourneyServiceOptions) {
     },
 
     /**
+     * „Alternativen anzeigen“: kurz vor dem Umstiegshalt (bzw. beim Umsteigen) andere Verbindungen ab dort suchen – etwa ein
+     * verspäteter früherer Zug. Nur auf Knopfdruck, keine Benachrichtigung; Übernehmen wie bei anderen Alternativen.
+     */
+    async searchAlternatives(scope: string, id: string): Promise<TripView> {
+      const r = await store.get(scope, id);
+      if (!r) throw new JourneyError('not-found');
+      const t = Date.now();
+      if (isDemoJourney(r.journey)) {
+        await store.setPref(scope, demoManualKey(id), nowIso());
+        return view(await demoRecord(r, t), t);
+      }
+      const w = changeWindow(r.journey, r.boarding, t);
+      if (!w) throw new JourneyError('not-now');
+      const ctx = { ticket: r.ticket, hasDTicket: r.dticket };
+      // freiwillig ein anderer Zug: Zugbindung nur, wenn sie ohnehin aufgehoben ist (≥ 20 min, Anschluss weg)
+      const lifted = bindingLifted(r.journey).lifted;
+      const bookedTripIds = r.plannedJourney.legs.flatMap((l) => (l.tripId ? [l.tripId] : []));
+      const plannedNext = r.journey.legs.slice(w.keepLegs).find((l) => l.kind === 'ride')?.tripId;
+      const dest = r.journey.legs.at(-1)!.to.stop;
+      const found = await client.plan({ from: w.origin.id, to: dest.id, time: w.time, modes: searchModes(ctx), results: ALT_RESULTS + 2 });
+      const options = found
+        .filter((j) => j.legs.some((l) => l.kind === 'ride'))
+        // die geplante Weiterfahrt nicht noch einmal anbieten
+        .filter((j) => !plannedNext || j.legs.find((l) => l.kind === 'ride')?.tripId !== plannedNext)
+        .map((j) => rateAlternative(j, ctx, { bindingLifted: lifted, bookedTripIds }))
+        .sort((a, b) => Date.parse(journeyEnd(a.journey) ?? '') - Date.parse(journeyEnd(b.journey) ?? '') || Number(b.covered) - Number(a.covered))
+        .slice(0, ALT_RESULTS);
+      const alt: StoredAlternatives = { key: w.key, reason: 'manual', keepLegs: w.keepLegs, origin: w.origin, time: w.time, until: w.until, bindingLifted: lifted, computedAt: nowIso(), options };
+      await store.setAlternatives(r.id, alt);
+      return view({ record: { ...r, alternatives: alt } }, t);
+    },
+
+    /** selbst gesuchte Alternativen ausblenden */
+    async dismissAlternatives(scope: string, id: string): Promise<TripView> {
+      const r = await store.get(scope, id);
+      if (!r) throw new JourneyError('not-found');
+      const t = Date.now();
+      if (isDemoJourney(r.journey)) {
+        await store.setPref(scope, demoManualKey(id), '');
+        return view(await demoRecord(r, t), t);
+      }
+      if (r.alternatives?.reason !== 'manual') return view({ record: r }, t);
+      await store.setAlternatives(r.id, null);
+      return view({ record: await maintainAlternatives({ ...r, alternatives: null }, t) }, t);
+    },
+
+    /**
      * Zurück zur ursprünglich gewählten Verbindung (nach „Übernehmen“ einer Alternative). Check-ins auf dem gemeinsamen
      * Anfang bleiben; danach Live-Abgleich – passt die Verbindung weiterhin nicht, erscheinen wieder Alternativen.
      */
@@ -574,6 +660,7 @@ export function createJourneyService(opts: JourneyServiceOptions) {
       const t = Date.now();
       if (isDemoJourney(r.journey)) {
         await store.setPref(scope, demoChoiceKey(id), '');
+        await store.setPref(scope, demoManualKey(id), '');
         return view(await demoRecord(r, t), t);
       }
       if (!isReplaced(r.journey, r.plannedJourney)) return view({ record: r }, t);
@@ -643,6 +730,7 @@ export type JourneyService = ReturnType<typeof createJourneyService>;
 const PUSH_TEXT = {
   de: {
     'missed-train': '{line} verpasst',
+    manual: 'Andere Verbindungen',
     connection: 'Anschluss {line} nicht erreichbar',
     cancelled: '{line} fällt aus',
     options: '{n} Alternativen ab {stop} – früheste Ankunft {time}',
@@ -651,6 +739,7 @@ const PUSH_TEXT = {
   },
   en: {
     'missed-train': 'Missed {line}',
+    manual: 'Other connections',
     connection: 'Connection {line} will be missed',
     cancelled: '{line} is cancelled',
     options: '{n} alternatives from {stop} – earliest arrival {time}',

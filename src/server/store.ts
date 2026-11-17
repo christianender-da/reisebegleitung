@@ -38,6 +38,8 @@ export interface StoredAlternatives {
   line?: string;
   /** Verkehrsmittel des betroffenen Zugs (ab 0.7.1; ältere Einträge ohne) */
   mode?: Mode;
+  /** bei selbst gesuchten Alternativen: bis wann sie gelten (Abfahrt des geplanten Anschlusses) */
+  until?: string;
   bindingLifted: boolean;
   computedAt: string;
   options: AlternativeOption[];

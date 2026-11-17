@@ -151,3 +151,20 @@ export function demoAlternativeJourneys(start: number): Journey[] {
     },
   ];
 }
+
+/**
+ * „Alternativen anzeigen“ in der Testfahrt: ab dem Umstiegshalt der Fahrt keepLegs-1 – ein verspäteter, aber früherer
+ * Regionalzug (wie ein verspäteter RE, der vor der planmäßigen RB fährt) und eine spätere Regionalbahn.
+ */
+export function demoManualJourneys(start: number, keepLegs: number): Journey[] {
+  const base = demoJourney(start);
+  const l = base.legs[keepLegs - 1];
+  if (!l || l.kind !== 'ride') return [];
+  const a = Math.round((Date.parse(l.to.arrival ?? l.to.plannedArrival ?? '') - start) / 60_000);
+  const s = (name: string, o: Parameters<typeof stop>[2]) => stop(start, name, o);
+  const from = l.to.stop.name;
+  return [
+    { legs: [ride('regional', 'RE 98', s(from, { dep: a - 2, depDelay: 5, track: '5' }), s(DEMO_DEST, { arr: a + 38, arrDelay: 5, track: '2' }), [s('Mittelhausen', { arr: a + 22, arrDelay: 5 })], '4598')] },
+    { legs: [ride('regional', 'RB 12', s(from, { dep: a + 12, track: '3' }), s(DEMO_DEST, { arr: a + 60, track: '1' }), [s('Mittelhausen', { arr: a + 40 })], '8124')] },
+  ];
+}
