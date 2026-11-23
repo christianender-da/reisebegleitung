@@ -63,11 +63,6 @@ export interface JourneyServiceOptions {
   push?: { privateJwk: string | undefined; subject: string } | null;
   /** Ziel beim Antippen der Benachrichtigung (Standard „/“) */
   notifyUrl?: (scope: string) => string;
-  /**
-   * Name der App auf dem Home-Bildschirm (Standard „Reise“ = short_name der eigenständigen App) – Titel der Testnachricht.
-   * iOS setzt unter jeden Titel, der vom App-Namen abweicht, „from <App>“; gleicher Titel soll das vermeiden.
-   */
-  appName?: string;
   /** für Tests: Versand ersetzen */
   sendPush?: typeof sendPush;
   /** fehlende Zuggleise aus DB IRIS ergänzen (inoffiziell, ohne Key) – Standard aus */
@@ -708,7 +703,15 @@ export function createJourneyService(opts: JourneyServiceOptions) {
       for (const s of await store.listPush(scope)) {
         const res = await push(
           s,
-          { title: opts.appName ?? 'Reise', body: de ? 'Benachrichtigungen funktionieren.' : 'Notifications are working.', url: opts.notifyUrl?.(scope) ?? '/', tag: 'test' },
+          {
+            // iOS setzt unter jeden Titel „from <App-Name>“ (lässt sich nicht abschalten) – Titel daher nie der App-Name
+            title: de ? 'Benachrichtigungen sind an' : 'Notifications are on',
+            body: de
+              ? 'Fällt ein Zug aus oder ist ein Anschluss nicht zu schaffen, meldet sich die App mit Alternativen.'
+              : "If a train is cancelled or a connection can't be made, the app will suggest alternatives.",
+            url: opts.notifyUrl?.(scope) ?? '/',
+            tag: 'test',
+          },
           vapid,
         );
         if (res === 'ok') sent++;
